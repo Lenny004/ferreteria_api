@@ -1,0 +1,182 @@
+// =============================================================================
+// FlexoCable SV — Prisma schema (admin API / Node)
+// Mirrors PostgreSQL UUID schema from Squema.sql + migrations.
+// WPF caja uses EF Core; this schema is for FlexoCable-backend only.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["public", "sales", "dte", "hr", "system"]
+}
+
+// --- public ---
+
+model MeasurementType {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code       String   @unique @db.VarChar(10)
+  name       String   @db.VarChar(50)
+  unitLabel  String   @map("UnitLabel") @db.VarChar(20)
+  decimals   Int      @default(0) @db.SmallInt
+
+  products Product[]
+
+  @@map("MeasurementTypes")
+  @@schema("public")
+}
+
+model Family {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String   @unique @db.VarChar(5)
+  name        String   @db.VarChar(100)
+  description String?
+  isActive    Boolean  @default(true) @map("IsActive")
+  createdAt   DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  subfamilies Subfamily[]
+  products    Product[]
+
+  @@map("Families")
+  @@schema("public")
+}
+
+model Product {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code              String   @unique @db.VarChar(30)
+  description       String   @db.VarChar(200)
+  familyId          String   @map("FamilyId") @db.Uuid
+  subfamilyId       String?  @map("SubfamilyId") @db.Uuid
+  measurementTypeId String   @map("MeasurementTypeId") @db.Uuid
+  salePrice         Decimal  @default(0) @map("SalePrice") @db.Decimal(12, 2)
+  costPrice         Decimal  @default(0) @map("CostPrice") @db.Decimal(12, 2)
+  currentStock      Decimal  @default(0) @map("CurrentStock") @db.Decimal(12, 3)
+  minStock          Decimal  @default(0) @map("MinStock") @db.Decimal(12, 3)
+  supplierId        String?  @map("SupplierId") @db.Uuid
+  isActive          Boolean  @default(true) @map("IsActive")
+  createdAt         DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt         DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  family          Family          @relation(fields: [familyId], references: [id])
+  measurementType MeasurementType @relation(fields: [measurementTypeId], references: [id])
+
+  @@index([familyId], map: "IdxProductsFamily")
+  @@map("Products")
+  @@schema("public")
+}
+
+// --- hr ---
+
+model Department {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @unique @db.VarChar(100)
+  parentId    String?  @map("ParentId") @db.Uuid
+  description String?  @db.VarChar(300)
+  isActive    Boolean  @default(true) @map("IsActive")
+  createdAt   DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  parent    Department?  @relation("DepartmentHierarchy", fields: [parentId], references: [id])
+  children  Department[] @relation("DepartmentHierarchy")
+  positions Position[]
+  employees Employee[]
+
+  @@index([parentId], map: "IdxDepartmentsParent")
+  @@map("Departments")
+  @@schema("hr")
+}
+
+model Position {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  departmentId String   @map("DepartmentId") @db.Uuid
+  name         String   @db.VarChar(100)
+  description  String?  @db.VarChar(500)
+  isActive     Boolean  @default(true) @map("IsActive")
+  createdAt    DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  department Department @relation(fields: [departmentId], references: [id])
+  employees  Employee[]
+
+  @@unique([departmentId, name])
+  @@map("Positions")
+  @@schema("hr")
+}
+
+model Employee {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firstName       String    @map("FirstName") @db.VarChar(100)
+  lastName        String    @map("LastName") @db.VarChar(100)
+  dui             String?   @unique @map("Dui") @db.VarChar(15)
+  positionId      String?   @map("PositionId") @db.Uuid
+  departmentId    String?   @map("DepartmentId") @db.Uuid
+  hireDate        DateTime  @map("HireDate") @db.Date
+  baseSalary      Decimal   @map("BaseSalary") @db.Decimal(10, 2)
+  contractType    String    @default("PLAZO_FIJO") @map("ContractType") @db.VarChar(20)
+  salaryType      String    @default("MENSUAL") @map("SalaryType") @db.VarChar(20)
+  pinHash         String?   @map("PinHash")
+  canSell         Boolean   @default(false) @map("CanSell")
+  canCashier      Boolean   @default(false) @map("CanCashier")
+  isActive        Boolean   @default(true) @map("IsActive")
+  createdAt       DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  position   Position?   @relation(fields: [positionId], references: [id])
+  department Department? @relation(fields: [departmentId], references: [id])
+  orders     Order[]
+
+  @@index([departmentId], map: "IdxEmployeesDepartment")
+  @@map("Employees")
+  @@schema("hr")
+}
+
+model PayrollRun {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  periodId  String   @map("PeriodId") @db.Uuid
+  status    String   @default("BORRADOR") @db.VarChar(20)
+  createdAt DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+
+  @@map("PayrollRuns")
+  @@schema("hr")
+}
+
+// --- sales ---
+
+model Order {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId      String   @map("EmployeeId") @db.Uuid
+  applicationId   String   @map("ApplicationId") @db.Uuid
+  cashSessionId   String?  @map("CashSessionId") @db.Uuid
+  clientRequestId String   @unique @default(dbgenerated("gen_random_uuid()")) @map("ClientRequestId") @db.Uuid
+  status          String   @default("PENDIENTE") @db.VarChar(20)
+  total           Decimal  @default(0) @db.Decimal(12, 2)
+  createdAt       DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId], map: "IdxOrdersEmployee")
+  @@map("Orders")
+  @@schema("sales")
+}
+
+// --- system (admin web only) ---
+
+model WebUser {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  username     String    @unique @map("Username") @db.VarChar(50)
+  email        String    @unique @map("Email") @db.VarChar(100)
+  passwordHash String    @map("PasswordHash")
+  role         String    @default("ADMIN") @map("Role") @db.VarChar(20)
+  employeeId   String?   @map("EmployeeId") @db.Uuid
+  isActive     Boolean   @default(true) @map("IsActive")
+  lastLoginAt  DateTime? @map("LastLoginAt") @db.Timestamptz
+  createdAt    DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt    DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  @@map("WebUsers")
+  @@schema("system")
+}
