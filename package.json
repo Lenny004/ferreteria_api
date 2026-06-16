@@ -1,0 +1,17 @@
+{
+  "name": "flexocable-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FlexoCable SV — API administrativa (RRHH, planilla, inventario admin)",
+  "scripts": {
+    "db:generate": "prisma generate",
+    "db:pull": "prisma db pull",
+    "db:studio": "prisma studio"
+  },
+  "devDependencies": {
+  },
+  "dependencies": {
+    "@prisma/client": "^6.0.0",
+    "prisma": "^6.0.0"
+  }
+}
