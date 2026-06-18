@@ -1,7 +1,8 @@
 // =============================================================================
-// FlexoCable SV — Prisma schema (admin API / Node)
-// Mirrors PostgreSQL UUID schema from Squema.sql + migrations.
-// WPF caja uses EF Core; this schema is for FlexoCable-backend only.
+// FlexoCable SV — Prisma schema v3.0 (admin API / Node)
+// Esquemas: public, purchasing, sales, dte, fiscal, hr, system
+// WPF caja usa EF Core sobre la misma base PostgreSQL/Supabase.
+// UUID gen_random_uuid() en todas las tablas de negocio.
 // =============================================================================
 
 generator client {
@@ -11,17 +12,19 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  schemas  = ["public", "sales", "dte", "hr", "system"]
+  schemas  = ["public", "purchasing", "sales", "dte", "fiscal", "hr", "system"]
 }
 
-// --- public ---
+// =============================================================================
+// SCHEMA: public — Catálogo maestro de productos
+// =============================================================================
 
 model MeasurementType {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  code       String   @unique @db.VarChar(10)
-  name       String   @db.VarChar(50)
-  unitLabel  String   @map("UnitLabel") @db.VarChar(20)
-  decimals   Int      @default(0) @db.SmallInt
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code      String @unique @db.VarChar(10)
+  name      String @db.VarChar(50)
+  unitLabel String @map("UnitLabel") @db.VarChar(20)
+  decimals  Int    @default(0) @db.SmallInt
 
   products Product[]
 
@@ -31,9 +34,9 @@ model MeasurementType {
 
 model Family {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  code        String   @unique @db.VarChar(5)
+  code        String   @unique @db.VarChar(10)
   name        String   @db.VarChar(100)
-  description String?
+  description String?  @db.VarChar(300)
   isActive    Boolean  @default(true) @map("IsActive")
   createdAt   DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt   DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
@@ -45,31 +48,417 @@ model Family {
   @@schema("public")
 }
 
+model Subfamily {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  familyId    String   @map("FamilyId") @db.Uuid
+  code        String   @db.VarChar(10)
+  name        String   @db.VarChar(100)
+  description String?  @db.VarChar(300)
+  isActive    Boolean  @default(true) @map("IsActive")
+  createdAt   DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  family   Family    @relation(fields: [familyId], references: [id])
+  products Product[]
+
+  @@unique([familyId, code])
+  @@index([familyId], map: "IdxSubfamiliesFamily")
+  @@map("Subfamilies")
+  @@schema("public")
+}
+
+/// Datos fiscales básicos del cliente. Sin módulo CxC — solo para DTE y trazabilidad.
+model Customer {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// CF = consumidor final | CCF = contribuyente (requiere NIT+NRC)
+  customerType String   @default("CF") @map("CustomerType") @db.VarChar(5)
+  name         String   @db.VarChar(200)
+  dui          String?  @unique @map("Dui") @db.VarChar(15)
+  nit          String?  @unique @map("Nit") @db.VarChar(20)
+  nrc          String?  @unique @map("Nrc") @db.VarChar(20)
+  phone        String?  @db.VarChar(20)
+  email        String?  @db.VarChar(100)
+  address      String?  @db.VarChar(300)
+  municipality String?  @db.VarChar(100)
+  department   String?  @db.VarChar(50)
+  isActive     Boolean  @default(true) @map("IsActive")
+  createdAt    DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  orders Order[]
+
+  @@index([nit], map: "IdxCustomersNit")
+  @@index([nrc], map: "IdxCustomersNrc")
+  @@map("Customers")
+  @@schema("public")
+}
+
 model Product {
   id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   code              String   @unique @db.VarChar(30)
+  barcode           String?  @unique @db.VarChar(50)
   description       String   @db.VarChar(200)
   familyId          String   @map("FamilyId") @db.Uuid
   subfamilyId       String?  @map("SubfamilyId") @db.Uuid
   measurementTypeId String   @map("MeasurementTypeId") @db.Uuid
+  /// Precio de venta vigente
   salePrice         Decimal  @default(0) @map("SalePrice") @db.Decimal(12, 2)
-  costPrice         Decimal  @default(0) @map("CostPrice") @db.Decimal(12, 2)
+  /// Costo promedio ponderado — actualizado automáticamente al recibir compras
+  costPrice         Decimal  @default(0) @map("CostPrice") @db.Decimal(12, 4)
   currentStock      Decimal  @default(0) @map("CurrentStock") @db.Decimal(12, 3)
   minStock          Decimal  @default(0) @map("MinStock") @db.Decimal(12, 3)
-  supplierId        String?  @map("SupplierId") @db.Uuid
+  maxStock          Decimal? @map("MaxStock") @db.Decimal(12, 3)
+  reorderPoint      Decimal? @map("ReorderPoint") @db.Decimal(12, 3)
   isActive          Boolean  @default(true) @map("IsActive")
+  notes             String?  @db.Text
   createdAt         DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt         DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  family          Family          @relation(fields: [familyId], references: [id])
-  measurementType MeasurementType @relation(fields: [measurementTypeId], references: [id])
+  family               Family              @relation(fields: [familyId], references: [id])
+  subfamily            Subfamily?          @relation(fields: [subfamilyId], references: [id])
+  measurementType      MeasurementType     @relation(fields: [measurementTypeId], references: [id])
+  orderDetails         OrderDetail[]
+  inventoryMovements   InventoryMovement[]
+  purchaseOrderDetails PurchaseOrderDetail[]
 
   @@index([familyId], map: "IdxProductsFamily")
+  @@index([subfamilyId], map: "IdxProductsSubfamily")
   @@map("Products")
   @@schema("public")
 }
 
-// --- hr ---
+// =============================================================================
+// SCHEMA: purchasing — Compras y Proveedores
+// =============================================================================
+
+model Supplier {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @db.VarChar(200)
+  tradeName   String?  @map("TradeName") @db.VarChar(200)
+  nit         String?  @unique @map("Nit") @db.VarChar(20)
+  nrc         String?  @unique @map("Nrc") @db.VarChar(20)
+  contactName String?  @map("ContactName") @db.VarChar(150)
+  phone       String?  @db.VarChar(20)
+  email       String?  @db.VarChar(100)
+  address     String?  @db.VarChar(300)
+  municipality String? @db.VarChar(100)
+  department  String?  @db.VarChar(50)
+  /// SV = nacional, otro código ISO = importación
+  country     String   @default("SV") @db.VarChar(5)
+  creditDays  Int      @default(0) @map("CreditDays")
+  isActive    Boolean  @default(true) @map("IsActive")
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  purchaseOrders PurchaseOrder[]
+
+  @@index([nit], map: "IdxSuppliersNit")
+  @@map("Suppliers")
+  @@schema("purchasing")
+}
+
+model PurchaseOrder {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  supplierId        String    @map("SupplierId") @db.Uuid
+  employeeId        String    @map("EmployeeId") @db.Uuid
+  /// Número de documento del proveedor (factura/CCF recibido)
+  supplierDocNumber String?   @map("SupplierDocNumber") @db.VarChar(50)
+  /// Tipo de documento recibido: CCF, FAC, OTRO
+  supplierDocType   String?   @map("SupplierDocType") @db.VarChar(10)
+  /// BORRADOR → CONFIRMADA → RECIBIDA → CANCELADA
+  status            String    @default("BORRADOR") @db.VarChar(20)
+  subtotal          Decimal   @default(0) @db.Decimal(12, 2)
+  taxAmount         Decimal   @default(0) @map("TaxAmount") @db.Decimal(12, 2)
+  total             Decimal   @default(0) @db.Decimal(12, 2)
+  notes             String?   @db.Text
+  expectedDate      DateTime? @map("ExpectedDate") @db.Date
+  receivedAt        DateTime? @map("ReceivedAt") @db.Timestamptz
+  receivedById      String?   @map("ReceivedById") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt         DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  supplier           Supplier              @relation(fields: [supplierId], references: [id])
+  details            PurchaseOrderDetail[]
+  inventoryMovements InventoryMovement[]
+
+  @@index([supplierId], map: "IdxPurchaseOrdersSupplier")
+  @@index([status], map: "IdxPurchaseOrdersStatus")
+  @@map("PurchaseOrders")
+  @@schema("purchasing")
+}
+
+model PurchaseOrderDetail {
+  id              String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  purchaseOrderId String  @map("PurchaseOrderId") @db.Uuid
+  productId       String  @map("ProductId") @db.Uuid
+  quantity        Decimal @db.Decimal(12, 3)
+  unitCost        Decimal @map("UnitCost") @db.Decimal(12, 4)
+  taxRate         Decimal @default(0.13) @map("TaxRate") @db.Decimal(5, 4)
+  subtotal        Decimal @db.Decimal(12, 2)
+  total           Decimal @db.Decimal(12, 2)
+  notes           String? @db.VarChar(300)
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product       Product       @relation(fields: [productId], references: [id])
+
+  @@index([purchaseOrderId], map: "IdxPODetailsOrder")
+  @@index([productId], map: "IdxPODetailsProduct")
+  @@map("PurchaseOrderDetails")
+  @@schema("purchasing")
+}
+
+// =============================================================================
+// SCHEMA: sales — Ventas, Caja e Inventario
+// =============================================================================
+
+model CashSession {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId            String    @map("EmployeeId") @db.Uuid
+  cashRegisterCode      String    @default("CAJA-01") @map("CashRegisterCode") @db.VarChar(50)
+  openedAt              DateTime  @default(now()) @map("OpenedAt") @db.Timestamptz
+  closedAt              DateTime? @map("ClosedAt") @db.Timestamptz
+  openingAmount         Decimal   @default(0) @map("OpeningAmount") @db.Decimal(12, 2)
+  closingDeclaredAmount Decimal?  @map("ClosingDeclaredAmount") @db.Decimal(12, 2)
+  closingExpectedAmount Decimal?  @map("ClosingExpectedAmount") @db.Decimal(12, 2)
+  difference            Decimal?  @db.Decimal(12, 2)
+  /// ABIERTA | CERRADA | CANCELADA
+  status                String    @default("ABIERTA") @db.VarChar(20)
+  notes                 String?   @db.Text
+  createdAt             DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt             DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  employee Employee  @relation(fields: [employeeId], references: [id])
+  orders   Order[]
+  payments Payment[]
+
+  // La regla real es parcial: una sola sesion ABIERTA por empleado/caja.
+  // Prisma no modela indices parciales; debe crearse con SQL raw en migracion.
+  @@index([employeeId, cashRegisterCode], map: "IdxCashSessionEmployeeRegister")
+  @@index([status], map: "IdxCashSessionStatus")
+  @@index([openedAt], map: "IdxCashSessionOpened")
+  @@map("CashSessions")
+  @@schema("sales")
+}
+
+model Order {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId      String   @map("EmployeeId") @db.Uuid
+  cashSessionId   String?  @map("CashSessionId") @db.Uuid
+  /// customerId solo aplica para CCF (clientes con datos fiscales)
+  customerId      String?  @map("CustomerId") @db.Uuid
+  /// VENTA_CAJA = mostrador | ORDEN_CONFECCION = taller
+  orderType       String   @default("VENTA_CAJA") @map("OrderType") @db.VarChar(20)
+  /// Clave de idempotencia desde el cliente WPF
+  clientRequestId String   @unique @default(dbgenerated("gen_random_uuid()")) @map("ClientRequestId") @db.Uuid
+  /// PENDIENTE | COMPLETADA | CANCELADA
+  status          String   @default("PENDIENTE") @db.VarChar(20)
+  subtotal        Decimal  @default(0) @db.Decimal(12, 2)
+  taxAmount       Decimal  @default(0) @map("TaxAmount") @db.Decimal(12, 2)
+  total           Decimal  @default(0) @db.Decimal(12, 2)
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  employee    Employee     @relation(fields: [employeeId], references: [id])
+  cashSession CashSession? @relation(fields: [cashSessionId], references: [id])
+  customer    Customer?    @relation(fields: [customerId], references: [id])
+  details     OrderDetail[]
+  payments    Payment[]
+  dteIssued   DteIssued[]
+
+  @@index([employeeId], map: "IdxOrdersEmployee")
+  @@index([cashSessionId], map: "IdxOrdersCashSession")
+  @@index([status], map: "IdxOrdersStatus")
+  @@index([createdAt], map: "IdxOrdersCreatedAt")
+  @@map("Orders")
+  @@schema("sales")
+}
+
+model OrderDetail {
+  id        String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId   String  @map("OrderId") @db.Uuid
+  productId String  @map("ProductId") @db.Uuid
+  quantity  Decimal @db.Decimal(12, 3)
+  unitPrice Decimal @map("UnitPrice") @db.Decimal(12, 2)
+  /// Costo congelado al momento de la venta para cálculo de margen
+  unitCost  Decimal @default(0) @map("UnitCost") @db.Decimal(12, 4)
+  subtotal  Decimal @db.Decimal(12, 2)
+  notes     String? @db.VarChar(300)
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId], map: "IdxOrderDetailsOrder")
+  @@index([productId], map: "IdxOrderDetailsProduct")
+  @@map("OrderDetails")
+  @@schema("sales")
+}
+
+model Payment {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId       String   @map("OrderId") @db.Uuid
+  cashSessionId String?  @map("CashSessionId") @db.Uuid
+  /// EFECTIVO | TARJETA | TRANSFERENCIA | OTRO
+  method        String   @db.VarChar(20)
+  amount        Decimal  @db.Decimal(12, 2)
+  reference     String?  @db.VarChar(100)
+  createdAt     DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+
+  order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  cashSession CashSession? @relation(fields: [cashSessionId], references: [id])
+
+  @@index([orderId], map: "IdxPaymentsOrder")
+  @@index([cashSessionId], map: "IdxPaymentsSession")
+  @@map("Payments")
+  @@schema("sales")
+}
+
+/// Kardex valorado — inmutable. Cada fila es un movimiento de inventario.
+model InventoryMovement {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId       String   @map("ProductId") @db.Uuid
+  /// VENTA | DEVOLUCION_VENTA | ENTRADA_COMPRA | AJUSTE_ENTRADA | AJUSTE_SALIDA
+  movementType    String   @map("MovementType") @db.VarChar(30)
+  /// Positivo = entrada, negativo = salida
+  quantity        Decimal  @db.Decimal(12, 3)
+  unitCost        Decimal  @default(0) @map("UnitCost") @db.Decimal(12, 4)
+  totalCost       Decimal  @default(0) @map("TotalCost") @db.Decimal(12, 4)
+  /// Stock antes y después del movimiento (desnormalizado para Kardex rápido)
+  stockBefore     Decimal  @map("StockBefore") @db.Decimal(12, 3)
+  stockAfter      Decimal  @map("StockAfter") @db.Decimal(12, 3)
+  orderId         String?  @map("OrderId") @db.Uuid
+  purchaseOrderId String?  @map("PurchaseOrderId") @db.Uuid
+  employeeId      String?  @map("EmployeeId") @db.Uuid
+  reason          String?  @db.VarChar(300)
+  createdAt       DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+
+  product       Product        @relation(fields: [productId], references: [id])
+  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+
+  @@index([productId, createdAt], map: "IdxInvMovProductDate")
+  @@index([movementType], map: "IdxInvMovType")
+  @@index([orderId], map: "IdxInvMovOrder")
+  @@index([purchaseOrderId], map: "IdxInvMovPO")
+  @@map("InventoryMovements")
+  @@schema("public")
+}
+
+// =============================================================================
+// SCHEMA: dte — Facturación Electrónica
+// =============================================================================
+
+/// Configuración del emisor DTE. Solo debe existir un registro activo.
+model DteConfig {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  emisorNit          String   @map("EmisorNit") @db.VarChar(20)
+  emisorNrc          String   @map("EmisorNrc") @db.VarChar(20)
+  emisorName         String   @map("EmisorName") @db.VarChar(250)
+  emisorTradeName    String?  @map("EmisorTradeName") @db.VarChar(250)
+  actividadEconomica String   @map("ActividadEconomica") @db.VarChar(10)
+  addressLine        String   @map("AddressLine") @db.VarChar(300)
+  municipality       String   @map("Municipality") @db.VarChar(100)
+  department         String   @map("Department") @db.VarChar(50)
+  phone              String?  @db.VarChar(20)
+  email              String?  @db.VarChar(100)
+  /// 00 = pruebas | 01 = producción
+  ambiente           String   @default("00") @db.VarChar(5)
+  isActive           Boolean  @default(true) @map("IsActive")
+  createdAt          DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt          DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  @@map("DteConfig")
+  @@schema("dte")
+}
+
+model DteIssued {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId        String?   @map("OrderId") @db.Uuid
+  /// 01=FAC CF | 03=CCF | 05=Nota Crédito | 06=Sujeto Excluido | 11=FAC Exportación
+  dteType        String    @map("DteType") @db.VarChar(5)
+  generationCode String    @unique @default(dbgenerated("gen_random_uuid()")) @map("GenerationCode") @db.Uuid
+  controlNumber  String    @unique @map("ControlNumber") @db.VarChar(40)
+  /// PENDIENTE | PROCESADO | RECHAZADO | CONTINGENCIA
+  mhStatus       String    @default("PENDIENTE") @map("MhStatus") @db.VarChar(20)
+  mhResponse     String?   @map("MhResponse") @db.Text
+  mhSello        String?   @map("MhSello") @db.Text
+  /// FK al DTE original para notas de crédito (DTE-05)
+  relatedDteId   String?   @map("RelatedDteId") @db.Uuid
+  ambiente       String    @default("00") @db.VarChar(5)
+  jsonPayload    String?   @map("JsonPayload") @db.Text
+  pdfUrl         String?   @map("PdfUrl") @db.VarChar(500)
+  /// Montos para libro de IVA
+  totalExenta    Decimal   @default(0) @map("TotalExenta") @db.Decimal(12, 2)
+  totalGravada   Decimal   @default(0) @map("TotalGravada") @db.Decimal(12, 2)
+  totalIva       Decimal   @default(0) @map("TotalIva") @db.Decimal(12, 2)
+  totalPagar     Decimal   @default(0) @map("TotalPagar") @db.Decimal(12, 2)
+  reprints       Int       @default(0)
+  issuedAt       DateTime  @default(now()) @map("IssuedAt") @db.Timestamptz
+  processedAt    DateTime? @map("ProcessedAt") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+
+  order       Order?          @relation(fields: [orderId], references: [id])
+  relatedDte  DteIssued?      @relation("DteRelation", fields: [relatedDteId], references: [id])
+  creditNotes DteIssued[]     @relation("DteRelation")
+  contingency DteContingency?
+
+  @@index([orderId], map: "IdxDteIssuedOrder")
+  @@index([mhStatus], map: "IdxDteIssuedStatus")
+  @@index([dteType], map: "IdxDteIssuedType")
+  @@index([issuedAt], map: "IdxDteIssuedAt")
+  @@map("DteIssued")
+  @@schema("dte")
+}
+
+/// Cola de reintentos para DTEs en contingencia o rechazados temporalmente.
+model DteContingency {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dteId        String    @unique @map("DteId") @db.Uuid
+  attemptCount Int       @default(0) @map("AttemptCount")
+  lastError    String?   @map("LastError") @db.Text
+  nextRetryAt  DateTime? @map("NextRetryAt") @db.Timestamptz
+  resolvedAt   DateTime? @map("ResolvedAt") @db.Timestamptz
+  createdAt    DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt    DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  dte DteIssued @relation(fields: [dteId], references: [id])
+
+  @@index([nextRetryAt], map: "IdxContingencyRetry")
+  @@map("DteContingency")
+  @@schema("dte")
+}
+
+// =============================================================================
+// SCHEMA: fiscal — Libros de IVA
+// =============================================================================
+
+/// Registro de libros de IVA generados. Los datos reales se leen de DteIssued.
+model IvaReport {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  year         Int
+  month        Int       @db.SmallInt
+  /// VENTAS_CF | VENTAS_CCF | COMPRAS
+  reportType   String    @map("ReportType") @db.VarChar(20)
+  /// BORRADOR | CERRADO
+  status       String    @default("BORRADOR") @db.VarChar(20)
+  totalExenta  Decimal   @default(0) @map("TotalExenta") @db.Decimal(14, 2)
+  totalGravada Decimal   @default(0) @map("TotalGravada") @db.Decimal(14, 2)
+  totalIva     Decimal   @default(0) @map("TotalIva") @db.Decimal(14, 2)
+  generatedBy  String?   @map("GeneratedBy") @db.Uuid
+  generatedAt  DateTime? @map("GeneratedAt") @db.Timestamptz
+  fileUrl      String?   @map("FileUrl") @db.VarChar(500)
+  notes        String?   @db.Text
+  createdAt    DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+
+  @@unique([year, month, reportType])
+  @@index([year, month], map: "IdxIvaReportPeriod")
+  @@map("IvaReports")
+  @@schema("fiscal")
+}
+
+// =============================================================================
+// SCHEMA: hr — RRHH y Planilla
+// =============================================================================
 
 model Department {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -107,69 +496,596 @@ model Position {
   @@schema("hr")
 }
 
-model Employee {
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  firstName       String    @map("FirstName") @db.VarChar(100)
-  lastName        String    @map("LastName") @db.VarChar(100)
-  dui             String?   @unique @map("Dui") @db.VarChar(15)
-  positionId      String?   @map("PositionId") @db.Uuid
-  departmentId    String?   @map("DepartmentId") @db.Uuid
-  hireDate        DateTime  @map("HireDate") @db.Date
-  baseSalary      Decimal   @map("BaseSalary") @db.Decimal(10, 2)
-  contractType    String    @default("PLAZO_FIJO") @map("ContractType") @db.VarChar(20)
-  salaryType      String    @default("MENSUAL") @map("SalaryType") @db.VarChar(20)
-  pinHash         String?   @map("PinHash")
-  canSell         Boolean   @default(false) @map("CanSell")
-  canCashier      Boolean   @default(false) @map("CanCashier")
-  isActive        Boolean   @default(true) @map("IsActive")
-  createdAt       DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
-  updatedAt       DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+model Bank {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String   @db.VarChar(150)
+  code      String?  @unique @db.VarChar(10)
+  swift     String?  @db.VarChar(20)
+  isActive  Boolean  @default(true) @map("IsActive")
+  createdAt DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  position   Position?   @relation(fields: [positionId], references: [id])
-  department Department? @relation(fields: [departmentId], references: [id])
-  orders     Order[]
+  employeeBankAccounts EmployeeBankAccount[]
+
+  @@map("Banks")
+  @@schema("hr")
+}
+
+model RequiredDocumentType {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                  String   @unique @db.VarChar(150)
+  description           String?  @db.Text
+  isMandatory           Boolean  @default(true) @map("IsMandatory")
+  appliesToContractType String?  @map("AppliesToContractType") @db.VarChar(20)
+  hasExpiry             Boolean  @default(false) @map("HasExpiry")
+  isActive              Boolean  @default(true) @map("IsActive")
+  createdAt             DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+
+  employeeDocuments EmployeeDocument[]
+
+  @@map("RequiredDocumentTypes")
+  @@schema("hr")
+}
+
+model Employee {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firstName             String    @map("FirstName") @db.VarChar(100)
+  lastName              String    @map("LastName") @db.VarChar(100)
+  // Documentos de identidad
+  dui                   String?   @unique @map("Dui") @db.VarChar(15)
+  nit                   String?   @unique @map("Nit") @db.VarChar(20)
+  nup                   String?   @unique @map("Nup") @db.VarChar(20)
+  isssNumber            String?   @unique @map("IsssNumber") @db.VarChar(20)
+  // Organización
+  positionId            String?   @map("PositionId") @db.Uuid
+  departmentId          String?   @map("DepartmentId") @db.Uuid
+  directSupervisorId    String?   @map("DirectSupervisorId") @db.Uuid
+  // Contrato
+  hireDate              DateTime  @map("HireDate") @db.Date
+  baseSalary            Decimal   @map("BaseSalary") @db.Decimal(10, 2)
+  /// TIEMPO_PARCIAL | PLAZO_FIJO | HONORARIOS | PASANTE
+  contractType          String    @default("PLAZO_FIJO") @map("ContractType") @db.VarChar(20)
+  /// MENSUAL | QUINCENAL | SEMANAL
+  salaryType            String    @default("MENSUAL") @map("SalaryType") @db.VarChar(20)
+  contractEndDate       DateTime? @map("ContractEndDate") @db.Date
+  defaultBonus          Decimal   @default(0) @map("DefaultBonus") @db.Decimal(10, 2)
+  defaultViaticos       Decimal   @default(0) @map("DefaultViaticos") @db.Decimal(10, 2)
+  // Datos personales
+  birthDate             DateTime? @map("BirthDate") @db.Date
+  /// MASCULINO | FEMENINO | OTRO
+  gender                String?   @map("Gender") @db.VarChar(20)
+  /// SALVADOREÑA | EXTRANJERA
+  nationality           String?   @default("SALVADOREÑA") @map("Nationality") @db.VarChar(20)
+  passportNumber        String?   @map("PassportNumber") @db.VarChar(30)
+  /// SOLTERO | CASADO | UNION_DE_HECHO | DIVORCIADO | VIUDO
+  maritalStatus         String?   @map("MaritalStatus") @db.VarChar(20)
+  /// SIN_ESTUDIOS | BASICO | BACHILLER | SUPERIORES
+  academicLevel         String?   @map("AcademicLevel") @db.VarChar(20)
+  departmentSv          String?   @map("DepartmentSv") @db.VarChar(30)
+  dependentsDescription String?   @map("DependentsDescription") @db.Text
+  // Contacto
+  phone                 String?   @db.VarChar(20)
+  email                 String?   @db.VarChar(100)
+  address               String?   @db.VarChar(300)
+  // Previsión social
+  afpInstitution        String?   @map("AfpInstitution") @db.VarChar(20)
+  afpEnrollmentDate     DateTime? @map("AfpEnrollmentDate") @db.Date
+  isssEnrolled          Boolean   @default(true) @map("IsssEnrolled")
+  isssEnrollmentDate    DateTime? @map("IsssEnrollmentDate") @db.Date
+  // Canal de pago
+  /// DEPOSITO_BANCARIO | EFECTIVO | CHEQUE
+  paymentChannel        String?   @default("DEPOSITO_BANCARIO") @map("PaymentChannel") @db.VarChar(30)
+  // Período de prueba
+  onProbation           Boolean   @default(false) @map("OnProbation")
+  probationEndDate      DateTime? @map("ProbationEndDate") @db.Date
+  probationCompletedAt  DateTime? @map("ProbationCompletedAt") @db.Timestamptz
+  // Baja laboral
+  terminationReason     String?   @map("TerminationReason") @db.VarChar(40)
+  terminationNotes      String?   @map("TerminationNotes") @db.Text
+  // Acceso WPF caja
+  pinHash               String?   @map("PinHash")
+  pinUpdatedAt          DateTime? @map("PinUpdatedAt") @db.Timestamptz
+  canSell               Boolean   @default(false) @map("CanSell")
+  canCashier            Boolean   @default(false) @map("CanCashier")
+  attendanceEnabled     Boolean   @default(true) @map("AttendanceEnabled")
+  isActive              Boolean   @default(true) @map("IsActive")
+  createdAt             DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt             DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  position     Position?   @relation(fields: [positionId], references: [id])
+  department   Department? @relation(fields: [departmentId], references: [id])
+  supervisor   Employee?   @relation("EmployeeSupervisor", fields: [directSupervisorId], references: [id])
+  subordinates Employee[]  @relation("EmployeeSupervisor")
+
+  cashSessions         CashSession[]
+  orders               Order[]
+  bankAccounts         EmployeeBankAccount[]
+  documents            EmployeeDocument[]
+  salaryHistory        SalaryHistory[]
+  healthRecords        HealthConditionRecord[]
+  payrollDetails       PayrollDetail[]
+  aguinaldoDetails     AguinaldoDetail[]
+  termination          EmployeeTermination?
+  leaveRequests        LeaveRequest[]
+  vacationBalances     VacationBalance[]
 
   @@index([departmentId], map: "IdxEmployeesDepartment")
+  @@index([directSupervisorId], map: "IdxEmployeesSupervisor")
+  @@index([contractType], map: "IdxEmployeesContractType")
   @@map("Employees")
   @@schema("hr")
 }
 
-model PayrollRun {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  periodId  String   @map("PeriodId") @db.Uuid
-  status    String   @default("BORRADOR") @db.VarChar(20)
-  createdAt DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+model EmployeeBankAccount {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId    String   @map("EmployeeId") @db.Uuid
+  bankId        String   @map("BankId") @db.Uuid
+  /// CUENTA_CORRIENTE | CUENTA_DE_AHORRO | CUENTA_SALARIO
+  accountType   String   @default("CUENTA_DE_AHORRO") @map("AccountType") @db.VarChar(30)
+  accountNumber String   @map("AccountNumber") @db.VarChar(40)
+  isPrimary     Boolean  @default(true) @map("IsPrimary")
+  isActive      Boolean  @default(true) @map("IsActive")
+  createdAt     DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt     DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  @@map("PayrollRuns")
+  employee       Employee        @relation(fields: [employeeId], references: [id])
+  bank           Bank            @relation(fields: [bankId], references: [id])
+  payrollDetails PayrollDetail[]
+
+  @@index([employeeId], map: "IdxEmployeeBankAccountsEmployee")
+  @@map("EmployeeBankAccounts")
   @@schema("hr")
 }
 
-// --- sales ---
-
-model Order {
+model SalaryHistory {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employeeId      String   @map("EmployeeId") @db.Uuid
-  applicationId   String   @map("ApplicationId") @db.Uuid
-  cashSessionId   String?  @map("CashSessionId") @db.Uuid
-  clientRequestId String   @unique @default(dbgenerated("gen_random_uuid()")) @map("ClientRequestId") @db.Uuid
-  status          String   @default("PENDIENTE") @db.VarChar(20)
-  total           Decimal  @default(0) @db.Decimal(12, 2)
+  currentSalary   Decimal? @map("CurrentSalary") @db.Decimal(10, 2)
+  requestedSalary Decimal  @map("RequestedSalary") @db.Decimal(10, 2)
+  reason          String?  @db.VarChar(200)
+  effectiveDate   DateTime @map("EffectiveDate") @db.Date
+  approvedBy      String?  @map("ApprovedBy") @db.Uuid
+  isActive        Boolean  @default(true) @map("IsActive")
   createdAt       DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
 
   employee Employee @relation(fields: [employeeId], references: [id])
 
-  @@index([employeeId], map: "IdxOrdersEmployee")
-  @@map("Orders")
-  @@schema("sales")
+  @@index([employeeId], map: "IdxSalaryHistoryEmployee")
+  @@map("SalaryHistory")
+  @@schema("hr")
 }
 
-// --- system (admin web only) ---
+model EmployeeDocument {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId String    @map("EmployeeId") @db.Uuid
+  docTypeId  String    @map("DocTypeId") @db.Uuid
+  fileUrl    String?   @map("FileUrl") @db.VarChar(500)
+  fileName   String?   @map("FileName") @db.VarChar(200)
+  /// PENDIENTE | ENTREGADO | VENCIDO | NO_APLICA
+  status     String    @default("PENDIENTE") @map("Status") @db.VarChar(20)
+  issueDate  DateTime? @map("IssueDate") @db.Date
+  expiryDate DateTime? @map("ExpiryDate") @db.Date
+  notes      String?   @db.Text
+  isActive   Boolean   @default(true) @map("IsActive")
+  uploadedBy String?   @map("UploadedBy") @db.Uuid
+  uploadedAt DateTime  @default(now()) @map("UploadedAt") @db.Timestamptz
+  verifiedBy String?   @map("VerifiedBy") @db.Uuid
+  verifiedAt DateTime? @map("VerifiedAt") @db.Timestamptz
 
+  docType  RequiredDocumentType @relation(fields: [docTypeId], references: [id])
+  employee Employee             @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId], map: "IdxEmployeeDocumentsEmployee")
+  @@index([status], map: "IdxEmployeeDocumentsStatus")
+  @@map("EmployeeDocuments")
+  @@schema("hr")
+}
+
+model HealthConditionRecord {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId            String    @map("EmployeeId") @db.Uuid
+  /// ENFERMEDAD_CRONICA | ALERGIA | DISCAPACIDAD | LESION_LABORAL | EMBARAZO | OTRO
+  conditionType         String    @map("ConditionType") @db.VarChar(30)
+  initialStartDate      DateTime? @map("InitialStartDate") @db.Date
+  incapacityEndDate     DateTime? @map("IncapacityEndDate") @db.Date
+  notes                 String?   @db.Text
+  requiresAccommodation Boolean   @default(false) @map("RequiresAccommodation")
+  isActive              Boolean   @default(true) @map("IsActive")
+  createdBy             String?   @map("CreatedBy") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt             DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId], map: "IdxHealthConditionsEmployee")
+  @@map("HealthConditionRecords")
+  @@schema("hr")
+}
+
+model IsrBracket {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  year        Int
+  /// MENSUAL | QUINCENAL | SEMANAL
+  periodType  String   @map("PeriodType") @db.VarChar(20)
+  bracketFrom Decimal  @map("BracketFrom") @db.Decimal(10, 2)
+  bracketTo   Decimal? @map("BracketTo") @db.Decimal(10, 2)
+  fixedAmount Decimal  @default(0) @map("FixedAmount") @db.Decimal(10, 2)
+  rate        Decimal  @default(0) @map("Rate") @db.Decimal(6, 4)
+  excessOver  Decimal  @default(0) @map("ExcessOver") @db.Decimal(10, 2)
+  notes       String?  @db.VarChar(200)
+
+  @@unique([year, periodType, bracketFrom])
+  @@map("IsrBrackets")
+  @@schema("hr")
+}
+
+model Holiday {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @db.VarChar(100)
+  date        DateTime @db.Date
+  year        Int
+  isMandatory Boolean  @default(true) @map("IsMandatory")
+  isActive    Boolean  @default(true) @map("IsActive")
+  createdAt   DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+
+  @@unique([date, year])
+  @@index([year], map: "IdxHolidaysYear")
+  @@map("Holidays")
+  @@schema("hr")
+}
+
+model PayrollPeriod {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String    @db.VarChar(100)
+  /// MENSUAL | QUINCENAL | SEMANAL
+  periodType  String    @map("PeriodType") @db.VarChar(20)
+  startDate   DateTime  @map("StartDate") @db.Date
+  endDate     DateTime  @map("EndDate") @db.Date
+  paymentDate DateTime  @map("PaymentDate") @db.Date
+  isClosed    Boolean   @default(false) @map("IsClosed")
+  closedAt    DateTime? @map("ClosedAt") @db.Timestamptz
+  closedBy    String?   @map("ClosedBy") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+
+  payrollRuns     PayrollRun[]
+  payrollDetails  PayrollDetail[]
+  isrDeclarations IsrDeclaration[]
+
+  @@unique([startDate, endDate])
+  @@index([periodType], map: "IdxPayrollPeriodsType")
+  @@map("PayrollPeriods")
+  @@schema("hr")
+}
+
+model PayrollRun {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  periodId        String    @map("PeriodId") @db.Uuid
+  name            String    @db.VarChar(150)
+  notes           String?   @db.Text
+  /// EN_REVISION | APROBADA | PAGADA | ANULADA
+  status          String    @default("EN_REVISION") @db.VarChar(20)
+  totalGross      Decimal   @default(0) @map("TotalGross") @db.Decimal(12, 2)
+  totalAfpEmp     Decimal   @default(0) @map("TotalAfpEmp") @db.Decimal(12, 2)
+  totalAfpPat     Decimal   @default(0) @map("TotalAfpPat") @db.Decimal(12, 2)
+  totalIsssEmp    Decimal   @default(0) @map("TotalIsssEmp") @db.Decimal(12, 2)
+  totalIsssPat    Decimal   @default(0) @map("TotalIsssPat") @db.Decimal(12, 2)
+  totalIsr        Decimal   @default(0) @map("TotalIsr") @db.Decimal(12, 2)
+  totalDeductions Decimal   @default(0) @map("TotalDeductions") @db.Decimal(12, 2)
+  totalNet        Decimal   @default(0) @map("TotalNet") @db.Decimal(12, 2)
+  totalPatronal   Decimal   @default(0) @map("TotalPatronal") @db.Decimal(12, 2)
+  createdBy       String?   @map("CreatedBy") @db.Uuid
+  approvedBy      String?   @map("ApprovedBy") @db.Uuid
+  approvedAt      DateTime? @map("ApprovedAt") @db.Timestamptz
+  paidBy          String?   @map("PaidBy") @db.Uuid
+  paidAt          DateTime? @map("PaidAt") @db.Timestamptz
+  createdAt       DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  period  PayrollPeriod   @relation(fields: [periodId], references: [id])
+  details PayrollDetail[]
+
+  @@index([periodId], map: "IdxPayrollRunsPeriod")
+  @@index([status], map: "IdxPayrollRunsStatus")
+  @@map("PayrollRuns")
+  @@schema("hr")
+}
+
+model PayrollDetail {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  payrollRunId           String    @map("PayrollRunId") @db.Uuid
+  employeeId             String    @map("EmployeeId") @db.Uuid
+  periodId               String    @map("PeriodId") @db.Uuid
+  positionName           String?   @map("PositionName") @db.VarChar(100)
+  baseSalary             Decimal   @map("BaseSalary") @db.Decimal(10, 2)
+  salaryType             String    @map("SalaryType") @db.VarChar(20)
+  contractType           String?   @map("ContractType") @db.VarChar(20)
+  afpInstitution         String?   @map("AfpInstitution") @db.VarChar(20)
+  nup                    String?   @db.VarChar(20)
+  isssNumber             String?   @map("IsssNumber") @db.VarChar(20)
+  daysWorked             Decimal   @default(0) @map("DaysWorked") @db.Decimal(5, 1)
+  hoursWorked            Decimal   @default(0) @map("HoursWorked") @db.Decimal(7, 2)
+  ordinarySalary         Decimal   @default(0) @map("OrdinarySalary") @db.Decimal(10, 2)
+  overtimeHoursDiurnal   Decimal   @default(0) @map("OvertimeHoursDiurnal") @db.Decimal(5, 2)
+  overtimeHoursNocturnal Decimal   @default(0) @map("OvertimeHoursNocturnal") @db.Decimal(5, 2)
+  overtimeHoursHoliday   Decimal   @default(0) @map("OvertimeHoursHoliday") @db.Decimal(5, 2)
+  overtimeAmount         Decimal   @default(0) @map("OvertimeAmount") @db.Decimal(10, 2)
+  bonuses                Decimal   @default(0) @map("Bonuses") @db.Decimal(10, 2)
+  viaticos               Decimal   @default(0) @map("Viaticos") @db.Decimal(10, 2)
+  vacationPay            Decimal   @default(0) @map("VacationPay") @db.Decimal(10, 2)
+  vacationSurcharge      Decimal   @default(0) @map("VacationSurcharge") @db.Decimal(10, 2)
+  aguinaldo              Decimal   @default(0) @map("Aguinaldo") @db.Decimal(10, 2)
+  otherEarnings          Decimal   @default(0) @map("OtherEarnings") @db.Decimal(10, 2)
+  totalGross             Decimal   @default(0) @map("TotalGross") @db.Decimal(10, 2)
+  afpEmployeeRate        Decimal   @default(0.0725) @map("AfpEmployeeRate") @db.Decimal(5, 4)
+  afpEmployeeAmount      Decimal   @default(0) @map("AfpEmployeeAmount") @db.Decimal(10, 2)
+  isssEmployeeRate       Decimal   @default(0.03) @map("IsssEmployeeRate") @db.Decimal(5, 4)
+  isssEmployeeAmount     Decimal   @default(0) @map("IsssEmployeeAmount") @db.Decimal(10, 2)
+  isrTaxableIncome       Decimal   @default(0) @map("IsrTaxableIncome") @db.Decimal(10, 2)
+  isrAmount              Decimal   @default(0) @map("IsrAmount") @db.Decimal(10, 2)
+  loanDeduction          Decimal   @default(0) @map("LoanDeduction") @db.Decimal(10, 2)
+  otherDeductions        Decimal   @default(0) @map("OtherDeductions") @db.Decimal(10, 2)
+  totalDeductions        Decimal   @default(0) @map("TotalDeductions") @db.Decimal(10, 2)
+  afpEmployerRate        Decimal   @default(0.0775) @map("AfpEmployerRate") @db.Decimal(5, 4)
+  afpEmployerAmount      Decimal   @default(0) @map("AfpEmployerAmount") @db.Decimal(10, 2)
+  isssEmployerRate       Decimal   @default(0.075) @map("IsssEmployerRate") @db.Decimal(5, 4)
+  isssEmployerAmount     Decimal   @default(0) @map("IsssEmployerAmount") @db.Decimal(10, 2)
+  insaforpRate           Decimal   @default(0.01) @map("InsaforpRate") @db.Decimal(5, 4)
+  insaforpAmount         Decimal   @default(0) @map("InsaforpAmount") @db.Decimal(10, 2)
+  totalEmployerCost      Decimal   @default(0) @map("TotalEmployerCost") @db.Decimal(10, 2)
+  netPay                 Decimal   @default(0) @map("NetPay") @db.Decimal(10, 2)
+  paymentChannel         String?   @map("PaymentChannel") @db.VarChar(30)
+  bankAccountId          String?   @map("BankAccountId") @db.Uuid
+  paymentReference       String?   @map("PaymentReference") @db.VarChar(100)
+  paidAt                 DateTime? @map("PaidAt") @db.Timestamptz
+  daysAbsent             Decimal   @default(0) @map("DaysAbsent") @db.Decimal(5, 1)
+  daysVacation           Decimal   @default(0) @map("DaysVacation") @db.Decimal(5, 1)
+  daysSick               Decimal   @default(0) @map("DaysSick") @db.Decimal(5, 1)
+  daysPermission         Decimal   @default(0) @map("DaysPermission") @db.Decimal(5, 1)
+  hoursPerDay            Int       @default(8) @map("HoursPerDay")
+  isProbation            Boolean   @default(false) @map("IsProbation")
+  terminationId          String?   @unique @map("TerminationId") @db.Uuid
+  notes                  String?   @db.Text
+  createdAt              DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt              DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  payrollRun     PayrollRun            @relation(fields: [payrollRunId], references: [id])
+  employee       Employee              @relation(fields: [employeeId], references: [id])
+  period         PayrollPeriod         @relation(fields: [periodId], references: [id])
+  bankAccount    EmployeeBankAccount?  @relation(fields: [bankAccountId], references: [id])
+  termination    EmployeeTermination?  @relation(fields: [terminationId], references: [id])
+  earningLines   PayrollEarningLine[]
+  deductionLines PayrollDeductionLine[]
+  leaveRequests  LeaveRequest[]
+
+  @@unique([payrollRunId, employeeId])
+  @@index([payrollRunId], map: "IdxPayrollDetailsRun")
+  @@index([employeeId], map: "IdxPayrollDetailsEmployee")
+  @@index([periodId], map: "IdxPayrollDetailsPeriod")
+  @@map("PayrollDetails")
+  @@schema("hr")
+}
+
+model PayrollEarningLine {
+  id              String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  payrollDetailId String  @map("PayrollDetailId") @db.Uuid
+  /// SALARIO_BASE | HORAS_EXTRA_DIURNAS | HORAS_EXTRA_NOCTURNAS | HORAS_EXTRA_FERIADAS | BONO | VACACIONES_PAGO | AGUINALDO | INDEMNIZACION | VIATICOS | OTRO
+  type            String  @db.VarChar(30)
+  description     String? @db.VarChar(200)
+  amount          Decimal @db.Decimal(10, 2)
+  isTaxable       Boolean @default(true) @map("IsTaxable")
+  sortOrder       Int     @default(0) @map("SortOrder")
+
+  payrollDetail PayrollDetail @relation(fields: [payrollDetailId], references: [id], onDelete: Cascade)
+
+  @@index([payrollDetailId], map: "IdxPayrollEarningLinesDetail")
+  @@map("PayrollEarningLines")
+  @@schema("hr")
+}
+
+model PayrollDeductionLine {
+  id              String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  payrollDetailId String  @map("PayrollDetailId") @db.Uuid
+  /// AFP_EMPLEADO | ISSS_EMPLEADO | RENTA_ISR | PRESTAMO_EMPRESA | DESCUENTO_DISCIPLINARIO | OTRO
+  type            String  @db.VarChar(30)
+  description     String? @db.VarChar(200)
+  amount          Decimal @db.Decimal(10, 2)
+  sortOrder       Int     @default(0) @map("SortOrder")
+
+  payrollDetail PayrollDetail @relation(fields: [payrollDetailId], references: [id], onDelete: Cascade)
+
+  @@index([payrollDetailId], map: "IdxPayrollDeductionLinesDetail")
+  @@map("PayrollDeductionLines")
+  @@schema("hr")
+}
+
+model AguinaldoRun {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  year        Int       @unique
+  paymentDate DateTime  @map("PaymentDate") @db.Date
+  /// EN_REVISION | APROBADA | PAGADA | ANULADA
+  status      String    @default("EN_REVISION") @db.VarChar(20)
+  totalAmount Decimal   @default(0) @map("TotalAmount") @db.Decimal(12, 2)
+  createdBy   String?   @map("CreatedBy") @db.Uuid
+  approvedBy  String?   @map("ApprovedBy") @db.Uuid
+  approvedAt  DateTime? @map("ApprovedAt") @db.Timestamptz
+  notes       String?   @db.Text
+  createdAt   DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+
+  details AguinaldoDetail[]
+
+  @@map("AguinaldoRuns")
+  @@schema("hr")
+}
+
+model AguinaldoDetail {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  aguinaldoRunId String   @map("AguinaldoRunId") @db.Uuid
+  employeeId     String   @map("EmployeeId") @db.Uuid
+  yearsOfService Decimal  @map("YearsOfService") @db.Decimal(5, 2)
+  daysEntitled   Decimal  @map("DaysEntitled") @db.Decimal(5, 2)
+  dailySalary    Decimal  @map("DailySalary") @db.Decimal(10, 4)
+  grossAmount    Decimal  @map("GrossAmount") @db.Decimal(10, 2)
+  isrRetained    Decimal  @default(0) @map("IsrRetained") @db.Decimal(10, 2)
+  netAmount      Decimal  @map("NetAmount") @db.Decimal(10, 2)
+  notes          String?  @db.Text
+  createdAt      DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+
+  aguinaldoRun AguinaldoRun @relation(fields: [aguinaldoRunId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id])
+
+  @@unique([aguinaldoRunId, employeeId])
+  @@map("AguinaldoDetails")
+  @@schema("hr")
+}
+
+model EmployeeTermination {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId            String    @unique @map("EmployeeId") @db.Uuid
+  terminationDate       DateTime  @map("TerminationDate") @db.Date
+  /// RENUNCIA_VOLUNTARIA | DESPIDO_JUSTIFICADO | DESPIDO_INJUSTIFICADO | MUTUO_ACUERDO | VENCIMIENTO_CONTRATO | FALLECIMIENTO | JUBILACION
+  reason                String    @db.VarChar(40)
+  yearsOfService        Decimal?  @map("YearsOfService") @db.Decimal(6, 3)
+  indemnizacionDays     Decimal?  @map("IndemnizacionDays") @db.Decimal(6, 2)
+  indemnizacionAmount   Decimal?  @map("IndemnizacionAmount") @db.Decimal(12, 2)
+  vacationDaysPending   Decimal?  @map("VacationDaysPending") @db.Decimal(5, 1)
+  vacationPayAmount     Decimal?  @map("VacationPayAmount") @db.Decimal(10, 2)
+  aguinaldoProportional Decimal?  @map("AguinaldoProportional") @db.Decimal(10, 2)
+  pendingSalary         Decimal?  @map("PendingSalary") @db.Decimal(10, 2)
+  totalSettlement       Decimal?  @map("TotalSettlement") @db.Decimal(12, 2)
+  settlementNotes       String?   @map("SettlementNotes") @db.Text
+  documentUrl           String?   @map("DocumentUrl") @db.VarChar(500)
+  voidedAt              DateTime? @map("VoidedAt") @db.Timestamptz
+  voidReason            String?   @map("VoidReason") @db.VarChar(500)
+  createdBy             String?   @map("CreatedBy") @db.Uuid
+  approvedBy            String?   @map("ApprovedBy") @db.Uuid
+  paidAt                DateTime? @map("PaidAt") @db.Timestamptz
+  createdAt             DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+
+  employee       Employee        @relation(fields: [employeeId], references: [id])
+  payrollDetails PayrollDetail[]
+
+  @@map("EmployeeTerminations")
+  @@schema("hr")
+}
+
+model LeaveType {
+  id                     String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                   String   @unique @db.VarChar(100)
+  /// VACACIONES | PERMISO_CON_GOCE | PERMISO_SIN_GOCE | BAJA_MEDICA | INCAPACIDAD_LABORAL | MATERNIDAD | PATERNIDAD | SUSPENSION_DISCIPLINARIA
+  category               String   @db.VarChar(40)
+  maxDaysPerYear         Decimal? @map("MaxDaysPerYear") @db.Decimal(5, 1)
+  requiresDocument       Boolean  @default(false) @map("RequiresDocument")
+  isPaid                 Boolean  @default(true) @map("IsPaid")
+  affectsVacationAccrual Boolean  @default(false) @map("AffectsVacationAccrual")
+  legalBasis             String?  @map("LegalBasis") @db.VarChar(200)
+  isActive               Boolean  @default(true) @map("IsActive")
+  createdAt              DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+
+  leaveRequests LeaveRequest[]
+
+  @@map("LeaveTypes")
+  @@schema("hr")
+}
+
+model LeaveRequest {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId         String    @map("EmployeeId") @db.Uuid
+  leaveTypeId        String    @map("LeaveTypeId") @db.Uuid
+  startDate          DateTime  @map("StartDate") @db.Date
+  endDate            DateTime  @map("EndDate") @db.Date
+  daysRequested      Decimal   @map("DaysRequested") @db.Decimal(5, 1)
+  halfDay            Boolean   @default(false) @map("HalfDay")
+  halfDayPeriod      String?   @map("HalfDayPeriod") @db.VarChar(10)
+  reason             String?   @db.Text
+  documentUrl        String?   @map("DocumentUrl") @db.VarChar(500)
+  /// PENDIENTE | APROBADA | RECHAZADA | EN_GOCE
+  status             String    @default("PENDIENTE") @db.VarChar(20)
+  vacationPayAmount  Decimal?  @map("VacationPayAmount") @db.Decimal(10, 2)
+  vacationSurcharge  Decimal?  @map("VacationSurcharge") @db.Decimal(10, 2)
+  requestedAt        DateTime  @default(now()) @map("RequestedAt") @db.Timestamptz
+  reviewedBy         String?   @map("ReviewedBy") @db.Uuid
+  reviewedAt         DateTime? @map("ReviewedAt") @db.Timestamptz
+  reviewNotes        String?   @map("ReviewNotes") @db.Text
+  approvedBy         String?   @map("ApprovedBy") @db.Uuid
+  approvedAt         DateTime? @map("ApprovedAt") @db.Timestamptz
+  processedInPayroll Boolean   @default(false) @map("ProcessedInPayroll")
+  payrollDetailId    String?   @map("PayrollDetailId") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt          DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  employee      Employee       @relation(fields: [employeeId], references: [id])
+  leaveType     LeaveType      @relation(fields: [leaveTypeId], references: [id])
+  payrollDetail PayrollDetail? @relation(fields: [payrollDetailId], references: [id])
+
+  @@index([employeeId], map: "IdxLeaveRequestsEmployee")
+  @@index([status], map: "IdxLeaveRequestsStatus")
+  @@index([startDate, endDate], map: "IdxLeaveRequestsDates")
+  @@map("LeaveRequests")
+  @@schema("hr")
+}
+
+model VacationBalance {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId       String    @map("EmployeeId") @db.Uuid
+  year             Int
+  daysEarned       Decimal   @default(15) @map("DaysEarned") @db.Decimal(5, 1)
+  daysTaken        Decimal   @default(0) @map("DaysTaken") @db.Decimal(5, 1)
+  lastVacationDate DateTime? @map("LastVacationDate") @db.Date
+  nextVacationDue  DateTime? @map("NextVacationDue") @db.Date
+  updatedAt        DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, year])
+  @@map("VacationBalances")
+  @@schema("hr")
+}
+
+model IsrDeclaration {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  year           Int
+  month          Int       @db.SmallInt
+  periodId       String?   @map("PeriodId") @db.Uuid
+  totalTaxable   Decimal?  @map("TotalTaxable") @db.Decimal(12, 2)
+  totalIsr       Decimal?  @map("TotalIsr") @db.Decimal(12, 2)
+  submissionDate DateTime? @map("SubmissionDate") @db.Date
+  mhReference    String?   @map("MhReference") @db.VarChar(50)
+  /// PENDIENTE | ENVIADA | ACEPTADA
+  status         String    @default("PENDIENTE") @db.VarChar(30)
+  fileUrl        String?   @map("FileUrl") @db.VarChar(500)
+  createdBy      String?   @map("CreatedBy") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+
+  period PayrollPeriod? @relation(fields: [periodId], references: [id])
+
+  @@unique([year, month])
+  @@map("IsrDeclarations")
+  @@schema("hr")
+}
+
+// =============================================================================
+// SCHEMA: system — Configuración, Seguridad y Auditoría
+// =============================================================================
+
+model Setting {
+  key         String   @id @map("Key") @db.VarChar(100)
+  value       String   @map("Value") @db.Text
+  description String?  @map("Description") @db.VarChar(300)
+  /// Si es true, puede exponerse en la API pública sin autenticación
+  isPublic    Boolean  @default(false) @map("IsPublic")
+  updatedAt   DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  @@map("Settings")
+  @@schema("system")
+}
+
+/// Usuarios del panel administrativo web. No se usa en WPF.
 model WebUser {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   username     String    @unique @map("Username") @db.VarChar(50)
   email        String    @unique @map("Email") @db.VarChar(100)
   passwordHash String    @map("PasswordHash")
+  /// ADMIN | ACCOUNTANT | OWNER
   role         String    @default("ADMIN") @map("Role") @db.VarChar(20)
   employeeId   String?   @map("EmployeeId") @db.Uuid
   isActive     Boolean   @default(true) @map("IsActive")
@@ -178,5 +1094,25 @@ model WebUser {
   updatedAt    DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
 
   @@map("WebUsers")
+  @@schema("system")
+}
+
+model AuditLog {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tableName String   @map("TableName") @db.VarChar(100)
+  recordId  String   @map("RecordId") @db.VarChar(50)
+  /// INSERT | UPDATE | DELETE
+  action    String   @db.VarChar(10)
+  oldData   Json?    @map("OldData")
+  newData   Json?    @map("NewData")
+  userId    String?  @map("UserId") @db.Uuid
+  ipAddress String?  @map("IpAddress") @db.VarChar(45)
+  userAgent String?  @map("UserAgent") @db.VarChar(300)
+  createdAt DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+
+  @@index([tableName, recordId], map: "IdxAuditLogRecord")
+  @@index([userId], map: "IdxAuditLogUser")
+  @@index([createdAt], map: "IdxAuditLogCreatedAt")
+  @@map("AuditLog")
   @@schema("system")
 }

@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:18
+    image: postgres:17
     container_name: flexocable-postgres
     restart: unless-stopped
     environment:
@@ -10,7 +10,10 @@ services:
     ports:
       - "55432:5432"
     volumes:
-      - flexocable-postgres-data:/var/lib/postgresql
+      # Datos persistentes del contenedor
+      - flexocable-postgres-data:/var/lib/postgresql/data
+      # Script de inicialización (solo se ejecuta si el volumen está vacío)
+      - ./database/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U flexo_user -d flexocable"]
       interval: 10s
@@ -20,4 +23,3 @@ services:
 volumes:
   flexocable-postgres-data:
     name: flexocable-postgres-data
-    external: true

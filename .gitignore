@@ -1,0 +1,52 @@
+# Dependencias
+node_modules/
+
+# Variables de entorno (usar .env.example como plantilla)
+.env
+.env.*
+!.env.example
+
+# Build / compilación
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Prisma (cliente generado vive en node_modules; migraciones sí van al repo)
+prisma/*.db
+prisma/*.db-journal
+
+# Cobertura y pruebas
+coverage/
+.nyc_output/
+
+# Caché de herramientas
+.cache/
+.turbo/
+.eslintcache
+.parcel-cache/
+
+# Docker (datos locales, no el compose ni scripts SQL)
+docker-data/
+
+# IDE / editor
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*~
+
+# Sistema operativo
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
