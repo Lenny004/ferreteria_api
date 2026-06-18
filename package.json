@@ -2,16 +2,29 @@
   "name": "flexocable-backend",
   "version": "0.1.0",
   "private": true,
-  "description": "FlexoCable SV — API administrativa (RRHH, planilla, inventario admin)",
+  "description": "FlexoCable SV — API administrativa (catálogo, compras, RRHH, planilla, fiscal)",
   "scripts": {
-    "db:generate": "prisma generate",
-    "db:pull": "prisma db pull",
-    "db:studio": "prisma studio"
+    "db:generate":      "prisma generate",
+    "db:push":          "prisma db push",
+    "db:push:force":    "prisma db push --force-reset",
+    "db:migrate:dev":   "prisma migrate dev",
+    "db:migrate:deploy":"prisma migrate deploy",
+    "db:migrate:reset": "prisma migrate reset",
+    "db:seed":          "ts-node prisma/seed.ts",
+    "db:studio":        "prisma studio",
+    "db:format":        "prisma format",
+    "db:validate":      "prisma validate",
+    "docker:up":        "docker compose up -d",
+    "docker:down":      "docker compose down",
+    "docker:reset":     "docker compose down -v && docker compose up -d"
   },
   "devDependencies": {
+    "typescript":   "^5.0.0",
+    "ts-node":      "^10.9.0",
+    "@types/node":  "^20.0.0"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0",
-    "prisma": "^6.0.0"
+    "prisma":         "^6.0.0"
   }
 }
