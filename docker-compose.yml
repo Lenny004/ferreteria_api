@@ -11,7 +11,7 @@ services:
       - "55432:5432"
     volumes:
       # Datos persistentes del contenedor
-      - flexocable-postgres-data:/var/lib/postgresql/data
+      - flexocable-postgres-v3-data:/var/lib/postgresql/data
       # Script de inicialización (solo se ejecuta si el volumen está vacío)
       - ./database/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
     healthcheck:
@@ -21,5 +21,5 @@ services:
       retries: 5
 
 volumes:
-  flexocable-postgres-data:
-    name: flexocable-postgres-data
+  flexocable-postgres-v3-data:
+    name: flexocable-postgres-v3-data

@@ -120,10 +120,27 @@ model Product {
   orderDetails         OrderDetail[]
   inventoryMovements   InventoryMovement[]
   purchaseOrderDetails PurchaseOrderDetail[]
+  stockAlerts          StockAlert[]
 
   @@index([familyId], map: "IdxProductsFamily")
   @@index([subfamilyId], map: "IdxProductsSubfamily")
   @@map("Products")
+  @@schema("public")
+}
+
+model StockAlert {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @map("Id") @db.Uuid
+  productId    String    @map("ProductId") @db.Uuid
+  currentStock Decimal   @map("CurrentStock") @db.Decimal(12, 3)
+  minStock     Decimal   @map("MinStock") @db.Decimal(12, 3)
+  isResolved   Boolean   @default(false) @map("IsResolved")
+  resolvedAt   DateTime? @map("ResolvedAt") @db.Timestamptz
+  createdAt    DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([productId], map: "IdxStockAlertsProduct")
+  @@map("StockAlerts")
   @@schema("public")
 }
 
@@ -548,6 +565,7 @@ model Employee {
   /// MENSUAL | QUINCENAL | SEMANAL
   salaryType            String    @default("MENSUAL") @map("SalaryType") @db.VarChar(20)
   contractEndDate       DateTime? @map("ContractEndDate") @db.Date
+  terminationDate       DateTime? @map("TerminationDate") @db.Date
   defaultBonus          Decimal   @default(0) @map("DefaultBonus") @db.Decimal(10, 2)
   defaultViaticos       Decimal   @default(0) @map("DefaultViaticos") @db.Decimal(10, 2)
   // Datos personales
@@ -1076,6 +1094,23 @@ model Setting {
   updatedAt   DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
 
   @@map("Settings")
+  @@schema("system")
+}
+
+/// Impresoras configuradas por la caja WPF.
+model Printer {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @map("Id") @db.Uuid
+  name           String   @map("Name") @db.VarChar(200)
+  connectionType String   @default("USB") @map("ConnectionType") @db.VarChar(10)
+  ipAddress      String?  @map("IpAddress") @db.VarChar(15)
+  networkPort    Int?     @map("NetworkPort")
+  paperWidth     Int      @default(80) @map("PaperWidth") @db.SmallInt
+  isDefault      Boolean  @default(false) @map("IsDefault")
+  isActive       Boolean  @default(true) @map("IsActive")
+  createdAt      DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  @@map("Printers")
   @@schema("system")
 }
 

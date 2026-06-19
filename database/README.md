@@ -1,35 +1,42 @@
-# Migraciones PostgreSQL — FlexoCable
+# Base de datos — FlexoCable-backend
 
-## Orden de aplicación
+## Fuente de verdad (v3.0)
 
-1. `FlexoCable/FlexoCableSV.PuntoVenta/Squema.sql` (v2.0.0, UUID)
-2. `20260616_0001_phase0_schema_saneamiento.sql`
-3. `20260616_0002_phase0b_hr_payroll.sql`
-
-Usar `FlexoCable/tools/FlexoCable.DbApply` o aplicar manualmente en ese orden.
+Desde el plan v3.0, el esquema se define en **`prisma/schema.prisma`**. Las tablas se crean con Prisma; `database/init.sql` solo prepara extensiones y esquemas al iniciar Docker.
 
 ## Instalación nueva (recomendado)
 
 ```bash
 cd FlexoCable-backend
 docker compose up -d
-cd ../FlexoCable/tools/FlexoCable.DbApply
-dotnet run
+cp .env.example .env
+npm install
+npm run db:push
+npm run db:seed
 ```
+
+## Archivos en esta carpeta
+
+| Archivo | Función |
+|---|---|
+| `init.sql` | Bootstrap del contenedor: `pgcrypto`, esquemas (`public`, `sales`, `dte`, `hr`, `system`, `purchasing`, `fiscal`), permisos |
+| `README.md` | Esta guía |
+
+## Legacy
+
+`FlexoCable/FlexoCableSV.PuntoVenta/Squema.sql` y `FlexoCable/tools/FlexoCable.DbApply` quedan como referencia histórica. **No** mezclar Squema.sql y Prisma sobre la misma BD sin coordinación.
 
 ## Bases antiguas con INTEGER / BIGSERIAL
 
-**No hay migración automática de datos** de IDs enteros a UUID. Opciones:
+No hay migración automática de IDs enteros a UUID. Opciones:
 
 | Opción | Cuándo |
 |--------|--------|
-| Recrear BD vacía con `DbApply` | Desarrollo local, sin datos productivos |
+| Recrear BD con `npm run db:push` + `db:seed` | Desarrollo local sin datos productivos |
 | Exportar catálogo + reimportar | Pocos datos maestros |
 | Script ETL manual | Producción con historial |
 
-Si la BD fue creada con Squema.sql v1.x (enteros), **no ejecutar** solo las migraciones UUID: hay que recrear el esquema o contratar una migración de datos por tabla.
-
-## Empleados demo (PIN caja)
+## Empleados demo (PIN caja — solo desarrollo)
 
 | DUI | PIN | Rol |
 |-----|-----|-----|
@@ -37,4 +44,4 @@ Si la BD fue creada con Squema.sql v1.x (enteros), **no ejecutar** solo las migr
 | 00000002-0 | 5678 | Técnico confección |
 | 00000003-0 | 0000 | Caja demo |
 
-Solo desarrollo. Cambiar PINs antes de producción.
+Cambiar PINs antes de producción.
