@@ -1,13 +1,30 @@
+/**
+ * Seed de datos demo para el ERP Ferretería (PostgreSQL + Prisma).
+ *
+ * Pobla catálogos maestros y RRHH mínimos para desarrollo local:
+ * - MeasurementType / Family (esquema public)
+ * - Department / Position / Employee (esquema hr)
+ * - Setting + WebUser admin (esquema system)
+ *
+ * WebUser demo: admin / admin123 (solo desarrollo).
+ */
+
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-async function main() {
+/**
+ * Inserta o actualiza catálogos, empleados demo y settings del sistema.
+ * Requiere la extensión pgcrypto para `crypt` / `gen_salt` en PinHash.
+ */
+async function seedDemoData(): Promise<void> {
+  // pgcrypto habilita bcrypt (bf) para hashear PIN de Employee.
   await prisma.$executeRawUnsafe('CREATE EXTENSION IF NOT EXISTS "pgcrypto"');
 
   await prisma.$executeRawUnsafe(`
     DO $$
     BEGIN
+    -- MeasurementType: unidad de medida del Product (metros, piezas, kits, kg).
     INSERT INTO public."MeasurementTypes" (code, name, "UnitLabel", decimals) VALUES
       ('METRO', 'Metros lineales', 'metros', 2),
       ('PIEZA', 'Piezas / unidades', 'piezas', 0),
@@ -18,6 +35,7 @@ async function main() {
       "UnitLabel" = EXCLUDED."UnitLabel",
       decimals = EXCLUDED.decimals;
 
+    -- Family: categorías de Product del catálogo ferretero / confección.
     INSERT INTO public."Families" (code, name, description) VALUES
       ('01', 'Cables de Acero', 'Cables galvanizados e inoxidables 7x7, 7x19'),
       ('02', 'Boquillas', 'Boquillas acelerador, cambios, embrague, freno'),
@@ -32,19 +50,21 @@ async function main() {
       ('11', 'Tubos y Anillos', 'Tubos metalicos, bujes, anillos retencion'),
       ('12', 'Manijas', 'Manijas acelerador, freno de mano, apertura'),
       ('13', 'Troqueles y Kits', 'Troqueles grafadores, kits pre-armados'),
-      ('FLV', 'Flexoindustrial VLD', 'Very Light Duty - trabajo muy liviano'),
-      ('FLL', 'Flexoindustrial LD', 'Light Duty - trabajo liviano'),
-      ('FLM', 'Flexoindustrial MD', 'Medium Duty - trabajo medio'),
-      ('FLH', 'Flexoindustrial HD', 'Heavy Duty - trabajo pesado')
+      ('HER', 'Herramientas', 'Herramientas manuales y electricas'),
+      ('CON', 'Construccion', 'Cemento, bloques, arena, agregados'),
+      ('PIN', 'Pinturas', 'Pinturas, solventes y brochas'),
+      ('TOR', 'Tornilleria', 'Tornillos, clavos, tuercas y anclajes')
     ON CONFLICT (code) DO UPDATE SET
       name = EXCLUDED.name,
       description = EXCLUDED.description,
       "IsActive" = TRUE;
 
+    -- Department: estructura organizacional (hr).
     INSERT INTO hr."Departments" (name) VALUES
       ('Produccion'), ('Ventas'), ('Bodega'), ('Administracion')
     ON CONFLICT (name) DO UPDATE SET "IsActive" = TRUE;
 
+    -- Position: cargos ligados a Department.
     INSERT INTO hr."Positions" ("DepartmentId", name)
     SELECT id, 'Tecnico de Confeccion' FROM hr."Departments" WHERE name = 'Produccion'
     ON CONFLICT ("DepartmentId", name) DO UPDATE SET "IsActive" = TRUE;
@@ -61,6 +81,7 @@ async function main() {
     SELECT id, 'Administrador' FROM hr."Departments" WHERE name = 'Administracion'
     ON CONFLICT ("DepartmentId", name) DO UPDATE SET "IsActive" = TRUE;
 
+    -- Employee demo: Administrador (CanCashier). PIN demo "1234" → PinHash bcrypt.
     INSERT INTO hr."Employees" (
       "FirstName", "LastName", "Dui", "PositionId", "DepartmentId", "HireDate", "BaseSalary",
       "ContractType", "SalaryType", "PinHash", "CanSell", "CanCashier"
@@ -77,6 +98,7 @@ async function main() {
       "CanCashier" = TRUE,
       "IsActive" = TRUE;
 
+    -- Employee demo: Técnico de confección (CanSell). PIN demo "5678".
     INSERT INTO hr."Employees" (
       "FirstName", "LastName", "Dui", "PositionId", "DepartmentId", "HireDate", "BaseSalary",
       "ContractType", "SalaryType", "PinHash", "CanSell", "CanCashier"
@@ -93,6 +115,7 @@ async function main() {
       "CanSell" = TRUE,
       "IsActive" = TRUE;
 
+    -- Employee demo: Cajero (CanCashier). PIN demo "0000".
     INSERT INTO hr."Employees" (
       "FirstName", "LastName", "Dui", "PositionId", "DepartmentId", "HireDate", "BaseSalary",
       "ContractType", "SalaryType", "PinHash", "CanSell", "CanCashier"
@@ -109,20 +132,37 @@ async function main() {
       "CanCashier" = TRUE,
       "IsActive" = TRUE;
 
+    -- Setting: parámetros operativos leídos por caja WPF y futura API admin.
     INSERT INTO system."Settings" ("Key", "Value", "Description") VALUES
       ('IvaPercentage', '13', 'IVA vigente en El Salvador (%)'),
       ('Currency', 'USD', 'Moneda operativa'),
       ('SessionTimeoutMinutes', '30', 'Minutos de inactividad antes de cerrar sesion'),
-      ('BusinessName', 'FlexoCable El Salvador', 'Nombre para impresion en tickets')
+      ('BusinessName', 'Ferreteria', 'Nombre para impresion en tickets')
     ON CONFLICT ("Key") DO UPDATE SET
       "Value" = EXCLUDED."Value",
       "Description" = EXCLUDED."Description",
+      "UpdatedAt" = NOW();
+
+    -- WebUser admin demo (password: admin123) — solo desarrollo.
+    INSERT INTO system."WebUsers" ("Username", "Email", "PasswordHash", "Role", "IsActive")
+    VALUES (
+      'admin',
+      'admin@ferreteria.local',
+      crypt('admin123', gen_salt('bf', 12)),
+      'ADMIN',
+      TRUE
+    )
+    ON CONFLICT ("Username") DO UPDATE SET
+      "PasswordHash" = EXCLUDED."PasswordHash",
+      "Email" = EXCLUDED."Email",
+      "Role" = 'ADMIN',
+      "IsActive" = TRUE,
       "UpdatedAt" = NOW();
     END $$;
   `);
 }
 
-main()
+seedDemoData()
   .then(async () => {
     await prisma.$disconnect();
   })
