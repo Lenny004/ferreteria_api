@@ -1,25 +1,28 @@
 services:
   postgres:
     image: postgres:17
-    container_name: flexocable-postgres
+    container_name: ferreteria-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: flexocable
-      POSTGRES_USER: flexo_user
-      POSTGRES_PASSWORD: flexo_dev_password
+      POSTGRES_DB: ferreteria
+      POSTGRES_USER: ferreteria_user
+      POSTGRES_PASSWORD: ferreteria_dev_password
     ports:
       - "55432:5432"
     volumes:
       # Datos persistentes del contenedor
-      - flexocable-postgres-v3-data:/var/lib/postgresql/data
-      # Script de inicialización (solo se ejecuta si el volumen está vacío)
+      - ferreteria-postgres-data:/var/lib/postgresql/data
+      # Scripts de inicializacion (solo se ejecutan si el volumen esta vacio).
+      # 01: extensiones, esquemas, funcion de timestamp y permisos.
       - ./database/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      # 02: esquema completo de la ferreteria (tablas, triggers y catalogo inicial).
+      - ../erp_ferreteria/Ferreteria.PuntoVenta/Squema.sql:/docker-entrypoint-initdb.d/02_schema.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U flexo_user -d flexocable"]
+      test: ["CMD-SHELL", "pg_isready -U ferreteria_user -d ferreteria"]
       interval: 10s
       timeout: 5s
       retries: 5
 
 volumes:
-  flexocable-postgres-v3-data:
-    name: flexocable-postgres-v3-data
+  ferreteria-postgres-data:
+    name: ferreteria-postgres-data
