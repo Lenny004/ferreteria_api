@@ -27,6 +27,14 @@ import employeeTerminationsRoutes from "./modules/employee-terminations/employee
 import fiscalRoutes from "./modules/fiscal/fiscal.routes.js";
 import dashboardRoutes from "./modules/dashboard/dashboard.routes.js";
 import holidaysRoutes from "./modules/holidays/holidays.routes.js";
+import contactRoutes from "./modules/contact/contact.routes.js";
+import publicCatalogRoutes from "./modules/public-catalog/public-catalog.routes.js";
+import shopAuthRoutes from "./modules/shop-auth/shop-auth.routes.js";
+import favoritesRoutes from "./modules/favorites/favorites.routes.js";
+import {
+  publicSettingsRouter,
+  adminSettingsRouter,
+} from "./modules/settings/settings.routes.js";
 
 function resolveCorsOrigins(): string[] {
   const configured = (process.env.CORS_ORIGIN ?? "")
@@ -64,6 +72,12 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/api/v1/auth", authRoutes);
+app.use("/api/v1/public/catalog", publicCatalogRoutes);
+app.use("/api/v1/public/settings", publicSettingsRouter);
+app.use("/api/v1/shop/auth", shopAuthRoutes);
+app.use("/api/v1/shop/favorites", favoritesRoutes);
+app.use("/api/v1/contact-messages", contactRoutes);
+app.use("/api/v1/settings", adminSettingsRouter);
 app.use("/api/v1/employees", employeesRoutes);
 app.use("/api/v1/banks", banksRoutes);
 app.use("/api/v1/document-types", documentTypesRoutes);

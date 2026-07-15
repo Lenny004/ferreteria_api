@@ -148,15 +148,19 @@ async function seedDemoData(): Promise<void> {
       "LegalBasis" = EXCLUDED."LegalBasis",
       "IsActive" = TRUE;
 
-    -- Setting: parámetros operativos leídos por caja WPF y futura API admin.
-    INSERT INTO system."Settings" ("Key", "Value", "Description") VALUES
-      ('IvaPercentage', '13', 'IVA vigente en El Salvador (%)'),
-      ('Currency', 'USD', 'Moneda operativa'),
-      ('SessionTimeoutMinutes', '30', 'Minutos de inactividad antes de cerrar sesion'),
-      ('BusinessName', 'Ferreteria', 'Nombre para impresion en tickets')
+    -- Setting: parámetros operativos leídos por caja WPF y APIs admin/públicas.
+    INSERT INTO system."Settings" ("Key", "Value", "Description", "IsPublic") VALUES
+      ('IvaPercentage', '13', 'IVA vigente en El Salvador (%)', FALSE),
+      ('Currency', 'USD', 'Moneda operativa', TRUE),
+      ('SessionTimeoutMinutes', '30', 'Minutos de inactividad antes de cerrar sesion', FALSE),
+      ('BusinessName', 'Ferreteria', 'Nombre comercial público', TRUE),
+      ('ContactEmail', 'contacto@ferreteria.local', 'Correo de contacto público', TRUE),
+      ('TermsOfService', E'# Términos de uso\n\nAl usar la tienda en línea de Ferreteria usted acepta estos términos. Los precios y existencias pueden variar. Las compras en mostrador se rigen por las políticas de la sucursal.', 'Términos de servicio de la tienda pública', TRUE),
+      ('PrivacyPolicy', E'# Política de privacidad\n\nTratamos sus datos (nombre, correo, teléfono) únicamente para atender pedidos, consultas y soporte. No vendemos información personal a terceros.', 'Política de privacidad de la tienda pública', TRUE)
     ON CONFLICT ("Key") DO UPDATE SET
       "Value" = EXCLUDED."Value",
       "Description" = EXCLUDED."Description",
+      "IsPublic" = EXCLUDED."IsPublic",
       "UpdatedAt" = NOW();
 
     -- IsrBracket: tabla de retención de renta vigente (Decreto Legislativo 293, 30-abr-2025;

@@ -128,6 +128,7 @@ model Product {
   inventoryMovements   InventoryMovement[]
   purchaseOrderDetails PurchaseOrderDetail[]
   stockAlerts          StockAlert[]
+  favorites            ProductFavorite[]
 
   @@index([familyId], map: "IdxProductsFamily")
   @@index([subfamilyId], map: "IdxProductsSubfamily")
@@ -1186,6 +1187,77 @@ model WebUser {
   updatedAt    DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
 
   @@map("WebUsers")
+  @@schema("system")
+}
+
+/// Cliente de la tienda pública B2C (auth distinta de WebUsers).
+model ShopCustomer {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String    @unique @map("Email") @db.VarChar(150)
+  passwordHash String    @map("PasswordHash")
+  fullName     String    @map("FullName") @db.VarChar(200)
+  phone        String?   @map("Phone") @db.VarChar(30)
+  isActive     Boolean   @default(true) @map("IsActive")
+  lastLoginAt  DateTime? @map("LastLoginAt") @db.Timestamptz
+  createdAt    DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt    DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  favorites ProductFavorite[]
+
+  @@map("ShopCustomers")
+  @@schema("system")
+}
+
+/// Favoritos de productos del cliente de tienda.
+model ProductFavorite {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shopCustomerId String   @map("ShopCustomerId") @db.Uuid
+  productId      String   @map("ProductId") @db.Uuid
+  createdAt      DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+
+  shopCustomer ShopCustomer @relation(fields: [shopCustomerId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([shopCustomerId, productId])
+  @@index([shopCustomerId], map: "IdxProductFavoritesCustomer")
+  @@index([productId], map: "IdxProductFavoritesProduct")
+  @@map("ProductFavorites")
+  @@schema("system")
+}
+
+/// Mensajes del formulario Contáctanos (tienda pública → bandeja admin).
+model ContactMessage {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name       String   @map("Name") @db.VarChar(150)
+  email      String   @map("Email") @db.VarChar(150)
+  phone      String?  @map("Phone") @db.VarChar(30)
+  subject    String   @map("Subject") @db.VarChar(200)
+  message    String   @map("Message") @db.Text
+  /// NEW | READ | ARCHIVED
+  status     String   @default("NEW") @map("Status") @db.VarChar(20)
+  adminNotes String?  @map("AdminNotes") @db.Text
+  createdAt  DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt  DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  @@index([status], map: "IdxContactMessagesStatus")
+  @@index([createdAt], map: "IdxContactMessagesCreatedAt")
+  @@map("ContactMessages")
+  @@schema("system")
+}
+
+/// Tokens de recuperación de contraseña (WebUser o ShopCustomer).
+model PasswordResetToken {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// WEB_USER | SHOP_CUSTOMER
+  audience  String    @map("Audience") @db.VarChar(20)
+  userId    String    @map("UserId") @db.Uuid
+  tokenHash String    @unique @map("TokenHash") @db.VarChar(128)
+  expiresAt DateTime  @map("ExpiresAt") @db.Timestamptz
+  usedAt    DateTime? @map("UsedAt") @db.Timestamptz
+  createdAt DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+
+  @@index([audience, userId], map: "IdxPasswordResetAudienceUser")
+  @@map("PasswordResetTokens")
   @@schema("system")
 }
 
