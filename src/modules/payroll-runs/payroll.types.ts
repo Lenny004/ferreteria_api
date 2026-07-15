@@ -11,6 +11,8 @@ export interface ListPayrollRunsFilters {
   periodId?: string;
   status?: PayrollRunStatus;
   createdBy?: string;
+  take?: number;
+  skip?: number;
 }
 
 export interface PayrollRunSummaryDto {

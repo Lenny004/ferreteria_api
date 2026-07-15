@@ -4,6 +4,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import * as service from "./leave-requests.service.js";
+import { jsonSuccess } from "../../shared/api-response.js";
 
 const IdParamSchema = z.object({ id: z.string().uuid("ID inválido") });
 
@@ -15,6 +16,8 @@ const ListSchema = z.object({
   leaveTypeId: z.string().uuid().optional(),
   startDateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   startDateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  take: z.coerce.number().int().positive().max(200).optional(),
+  skip: z.coerce.number().int().nonnegative().optional(),
 });
 
 const CreateSchema = z.object({
@@ -33,12 +36,12 @@ const ReviewSchema = z.object({
   reviewNotes: z.string().trim().max(2000).optional(),
 });
 
-/** GET `/` — lista solicitudes con filtros de negocio. */
+/** GET `/` — lista solicitudes con filtros de negocio y paginación. */
 export async function listLeaveRequests(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const filters = ListSchema.parse(req.query);
-    const rows = await service.listLeaveRequests(filters);
-    res.json({ success: true, data: rows });
+    const result = await service.listLeaveRequests(filters);
+    jsonSuccess(res, result);
   } catch (err) {
     next(err);
   }
@@ -49,7 +52,7 @@ export async function getLeaveRequest(req: Request, res: Response, next: NextFun
   try {
     const { id } = IdParamSchema.parse(req.params);
     const row = await service.getLeaveRequest(id);
-    res.json({ success: true, data: row });
+    jsonSuccess(res, row);
   } catch (err) {
     next(err);
   }
@@ -60,7 +63,7 @@ export async function createLeaveRequest(req: Request, res: Response, next: Next
   try {
     const body = CreateSchema.parse(req.body);
     const row = await service.createLeaveRequest(body);
-    res.status(201).json({ success: true, data: row });
+    jsonSuccess(res, row, 201);
   } catch (err) {
     next(err);
   }
@@ -73,7 +76,7 @@ export async function approveLeaveRequest(req: Request, res: Response, next: Nex
     const { reviewNotes } = ReviewSchema.parse(req.body ?? {});
     const userId = req.user!.userId;
     const row = await service.approveLeaveRequest(id, userId, reviewNotes);
-    res.json({ success: true, data: row });
+    jsonSuccess(res, row);
   } catch (err) {
     next(err);
   }
@@ -86,7 +89,7 @@ export async function rejectLeaveRequest(req: Request, res: Response, next: Next
     const { reviewNotes } = ReviewSchema.parse(req.body ?? {});
     const userId = req.user!.userId;
     const row = await service.rejectLeaveRequest(id, userId, reviewNotes);
-    res.json({ success: true, data: row });
+    jsonSuccess(res, row);
   } catch (err) {
     next(err);
   }

@@ -103,16 +103,26 @@ function mapDetailRow(
 }
 
 /** Lista corridas de aguinaldo, más recientes primero. */
-export async function listAguinaldoRuns(): Promise<AguinaldoRunDto[]> {
-  const rows = await prisma.aguinaldoRun.findMany({
-    include: runInclude,
-    orderBy: { year: "desc" },
-  });
-  const results: AguinaldoRunDto[] = [];
+export async function listAguinaldoRuns(params?: {
+  take?: number;
+  skip?: number;
+}): Promise<{ items: AguinaldoRunDto[]; total: number; take: number; skip: number }> {
+  const take = Math.min(params?.take ?? 50, 200);
+  const skip = params?.skip ?? 0;
+  const [rows, total] = await Promise.all([
+    prisma.aguinaldoRun.findMany({
+      include: runInclude,
+      orderBy: { year: "desc" },
+      take,
+      skip,
+    }),
+    prisma.aguinaldoRun.count(),
+  ]);
+  const items: AguinaldoRunDto[] = [];
   for (const row of rows) {
-    results.push(mapRunRow(row, await sumMoneyForRun(row.id)));
+    items.push(mapRunRow(row, await sumMoneyForRun(row.id)));
   }
-  return results;
+  return { items, total, take, skip };
 }
 
 /**

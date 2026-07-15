@@ -83,7 +83,9 @@ export async function listLeaveRequests(filters: {
   leaveTypeId?: string;
   startDateFrom?: string;
   startDateTo?: string;
-}): Promise<LeaveRequestDto[]> {
+  take?: number;
+  skip?: number;
+}): Promise<{ items: LeaveRequestDto[]; total: number; take: number; skip: number }> {
   const conditions: Prisma.LeaveRequestWhereInput[] = [];
   if (filters.employeeId) conditions.push({ employeeId: filters.employeeId });
   if (filters.status) conditions.push({ status: filters.status });
@@ -97,13 +99,22 @@ export async function listLeaveRequests(filters: {
     });
   }
 
-  const rows = await prisma.leaveRequest.findMany({
-    where: conditions.length ? { AND: conditions } : {},
-    include: requestInclude,
-    orderBy: { startDate: "desc" },
-  });
+  const where = conditions.length ? { AND: conditions } : {};
+  const take = Math.min(filters.take ?? 50, 200);
+  const skip = filters.skip ?? 0;
 
-  return rows.map(mapRow);
+  const [rows, total] = await Promise.all([
+    prisma.leaveRequest.findMany({
+      where,
+      include: requestInclude,
+      orderBy: { startDate: "desc" },
+      take,
+      skip,
+    }),
+    prisma.leaveRequest.count({ where }),
+  ]);
+
+  return { items: rows.map(mapRow), total, take, skip };
 }
 
 /**

@@ -11,6 +11,8 @@ const ListRunsSchema = z.object({
   periodId: z.string().uuid().optional(),
   status: z.enum(PAYROLL_RUN_STATUSES).optional(),
   createdBy: z.string().uuid().optional(),
+  take: z.coerce.number().int().positive().max(200).optional(),
+  skip: z.coerce.number().int().nonnegative().optional(),
 });
 
 const GenerateRunSchema = z.object({

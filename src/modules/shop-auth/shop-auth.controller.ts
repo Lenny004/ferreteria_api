@@ -102,3 +102,11 @@ export async function resetPassword(req: Request, res: Response, next: NextFunct
     next(err);
   }
 }
+
+export async function completeOnboarding(req: Request, res: Response, next: NextFunction) {
+  try {
+    jsonSuccess(res, await shopAuthService.completeOnboarding(req.user!.userId));
+  } catch (err) {
+    next(err);
+  }
+}

@@ -22,11 +22,17 @@ const VoidSchema = z.object({
   reason: z.string().trim().min(1, "Debes indicar un motivo de anulación").max(500),
 });
 
+const ListSchema = z.object({
+  take: z.coerce.number().int().positive().max(200).optional(),
+  skip: z.coerce.number().int().nonnegative().optional(),
+});
+
 /** GET `/` — lista liquidaciones. */
 export async function listTerminations(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const rows = await service.listTerminations();
-    jsonSuccess(res, rows);
+    const query = ListSchema.parse(req.query);
+    const result = await service.listTerminations(query);
+    jsonSuccess(res, result);
   } catch (err) {
     next(err);
   }
