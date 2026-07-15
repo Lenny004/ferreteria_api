@@ -31,9 +31,11 @@
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
+    "exceljs": "^4.4.0",
     "express": "^5.1.0",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
+    "pdfkit": "^0.19.1",
     "prisma": "^6.0.0",
     "zod": "^3.24.2"
   },
@@ -43,6 +45,7 @@
     "@types/express": "^5.0.1",
     "@types/jsonwebtoken": "^9.0.9",
     "@types/node": "^22.0.0",
+    "@types/pdfkit": "^0.17.6",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"
   }

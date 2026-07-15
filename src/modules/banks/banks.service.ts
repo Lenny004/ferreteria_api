@@ -2,9 +2,10 @@ import { prisma } from "../../lib/prisma.js";
 import { NotFoundError } from "../../shared/errors.js";
 
 export const banksService = {
-  async list() {
+  async list(params?: { activeOnly?: boolean }) {
+    const activeOnly = params?.activeOnly ?? true;
     return prisma.bank.findMany({
-      where: { isActive: true },
+      where: activeOnly ? { isActive: true } : undefined,
       orderBy: { name: "asc" },
     });
   },

@@ -19,6 +19,7 @@ router.get(
   controller.kardex,
 );
 router.get("/alerts", requireRole("ADMIN", "ACCOUNTANT", "OWNER"), controller.listAlerts);
+router.get("/valuation", requireRole("ADMIN", "ACCOUNTANT", "OWNER"), controller.valuation);
 router.patch(
   "/alerts/:id/resolve",
   requireRole("ADMIN", "OWNER"),

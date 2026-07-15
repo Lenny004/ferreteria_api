@@ -13,6 +13,20 @@ import {
 import customersRoutes from "./modules/customers/customers.routes.js";
 import productsRoutes from "./modules/products/products.routes.js";
 import inventoryRoutes from "./modules/inventory/inventory.routes.js";
+import {
+  suppliersRouter,
+  purchaseOrdersRouter,
+} from "./modules/purchasing/purchasing.routes.js";
+import payrollPeriodsRoutes from "./modules/payroll-periods/payroll-periods.routes.js";
+import payrollRunsRoutes from "./modules/payroll-runs/payroll-runs.routes.js";
+import aguinaldoRoutes from "./modules/aguinaldo/aguinaldo.routes.js";
+import vacationBalancesRoutes from "./modules/vacation-balances/vacation-balances.routes.js";
+import leaveTypesRoutes from "./modules/leave-types/leave-types.routes.js";
+import leaveRequestsRoutes from "./modules/leave-requests/leave-requests.routes.js";
+import employeeTerminationsRoutes from "./modules/employee-terminations/employee-terminations.routes.js";
+import fiscalRoutes from "./modules/fiscal/fiscal.routes.js";
+import dashboardRoutes from "./modules/dashboard/dashboard.routes.js";
+import holidaysRoutes from "./modules/holidays/holidays.routes.js";
 
 function resolveCorsOrigins(): string[] {
   const configured = (process.env.CORS_ORIGIN ?? "")
@@ -58,6 +72,18 @@ app.use("/api/v1/positions", positionsRouter);
 app.use("/api/v1/customers", customersRoutes);
 app.use("/api/v1/products", productsRoutes);
 app.use("/api/v1/inventory", inventoryRoutes);
+app.use("/api/v1/suppliers", suppliersRouter);
+app.use("/api/v1/purchase-orders", purchaseOrdersRouter);
+app.use("/api/v1/payroll-periods", payrollPeriodsRoutes);
+app.use("/api/v1/payroll-runs", payrollRunsRoutes);
+app.use("/api/v1/aguinaldo", aguinaldoRoutes);
+app.use("/api/v1/vacation-balances", vacationBalancesRoutes);
+app.use("/api/v1/leave-types", leaveTypesRoutes);
+app.use("/api/v1/leave-requests", leaveRequestsRoutes);
+app.use("/api/v1/employee-terminations", employeeTerminationsRoutes);
+app.use("/api/v1/fiscal", fiscalRoutes);
+app.use("/api/v1/dashboard", dashboardRoutes);
+app.use("/api/v1/holidays", holidaysRoutes);
 
 app.use(errorHandler);
 

@@ -119,7 +119,81 @@ export const inventoryService = {
       prisma.inventoryMovement.count({ where: { productId } }),
     ]);
 
-    return { product, items, total, take, skip };
+    /** Saldo valorado ≈ stockAfter × unitCost del movimiento (aprox. Kardex valorado). */
+    const valuedItems = items.map((m) => ({
+      ...m,
+      valuedBalance: new Prisma.Decimal(m.stockAfter)
+        .mul(new Prisma.Decimal(m.unitCost))
+        .toDecimalPlaces(2)
+        .toString(),
+    }));
+
+    return {
+      product: {
+        ...product,
+        inventoryValue: new Prisma.Decimal(product.currentStock)
+          .mul(new Prisma.Decimal(product.costPrice))
+          .toDecimalPlaces(2)
+          .toString(),
+      },
+      items: valuedItems,
+      total,
+      take,
+      skip,
+    };
+  },
+
+  /** Valuación total: Σ (stock × costo promedio) de productos activos. */
+  async valuation(params: { take?: number; skip?: number; q?: string } = {}) {
+    const where: Prisma.ProductWhereInput = { isActive: true };
+    if (params.q) {
+      where.OR = [
+        { code: { contains: params.q, mode: "insensitive" } },
+        { description: { contains: params.q, mode: "insensitive" } },
+      ];
+    }
+    const take = Math.min(params.take ?? 100, 500);
+    const skip = params.skip ?? 0;
+
+    const [products, total] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        select: {
+          id: true,
+          code: true,
+          description: true,
+          currentStock: true,
+          costPrice: true,
+          salePrice: true,
+        },
+        orderBy: { code: "asc" },
+        take,
+        skip,
+      }),
+      prisma.product.count({ where }),
+    ]);
+
+    const items = products.map((p) => {
+      const stock = new Prisma.Decimal(p.currentStock);
+      const cost = new Prisma.Decimal(p.costPrice);
+      const value = stock.mul(cost).toDecimalPlaces(2);
+      return {
+        ...p,
+        inventoryValue: value.toString(),
+      };
+    });
+
+    const allActive = await prisma.product.findMany({
+      where: { isActive: true },
+      select: { currentStock: true, costPrice: true },
+    });
+    const totalValue = allActive
+      .reduce((acc, p) => {
+        return acc.add(new Prisma.Decimal(p.currentStock).mul(new Prisma.Decimal(p.costPrice)));
+      }, new Prisma.Decimal(0))
+      .toDecimalPlaces(2);
+
+    return { items, total, take, skip, totalInventoryValue: totalValue.toString() };
   },
 
   async createMovement(input: {
@@ -162,6 +236,25 @@ export const inventoryService = {
           : new Prisma.Decimal(product.costPrice);
       const totalCost = unitCost.mul(toDecimal(Math.abs(signedQty)));
 
+      /** Entradas con costo: recalcular promedio ponderado. */
+      let nextCostPrice = new Prisma.Decimal(product.costPrice);
+      if (
+        (input.movementType === "ENTRADA_COMPRA" || input.movementType === "AJUSTE_ENTRADA") &&
+        signedQty > 0 &&
+        input.unitCost !== undefined
+      ) {
+        const qtyIn = toDecimal(signedQty);
+        if (stockBefore.lessThanOrEqualTo(0)) {
+          nextCostPrice = unitCost;
+        } else {
+          nextCostPrice = stockBefore
+            .mul(new Prisma.Decimal(product.costPrice))
+            .add(qtyIn.mul(unitCost))
+            .div(stockBefore.add(qtyIn))
+            .toDecimalPlaces(4);
+        }
+      }
+
       const movement = await tx.inventoryMovement.create({
         data: {
           productId: product.id,
@@ -181,6 +274,7 @@ export const inventoryService = {
         where: { id: product.id },
         data: {
           currentStock: stockAfter,
+          costPrice: nextCostPrice,
           updatedAt: new Date(),
         },
       });

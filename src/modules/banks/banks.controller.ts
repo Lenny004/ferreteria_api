@@ -13,9 +13,17 @@ const updateSchema = createSchema.partial().extend({
   isActive: z.boolean().optional(),
 });
 
-export async function list(_req: Request, res: Response, next: NextFunction) {
+const listQuerySchema = z.object({
+  activeOnly: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => (v === undefined ? true : v === "true")),
+});
+
+export async function list(req: Request, res: Response, next: NextFunction) {
   try {
-    jsonSuccess(res, await banksService.list());
+    const { activeOnly } = listQuerySchema.parse(req.query);
+    jsonSuccess(res, await banksService.list({ activeOnly }));
   } catch (err) {
     next(err);
   }
