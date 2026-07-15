@@ -31,6 +31,11 @@ import contactRoutes from "./modules/contact/contact.routes.js";
 import publicCatalogRoutes from "./modules/public-catalog/public-catalog.routes.js";
 import shopAuthRoutes from "./modules/shop-auth/shop-auth.routes.js";
 import favoritesRoutes from "./modules/favorites/favorites.routes.js";
+import cartRoutes from "./modules/cart/cart.routes.js";
+import {
+  shopOrdersRouter,
+  adminShopOrdersRouter,
+} from "./modules/shop-orders/shop-orders.routes.js";
 import {
   publicSettingsRouter,
   adminSettingsRouter,
@@ -76,6 +81,9 @@ app.use("/api/v1/public/catalog", publicCatalogRoutes);
 app.use("/api/v1/public/settings", publicSettingsRouter);
 app.use("/api/v1/shop/auth", shopAuthRoutes);
 app.use("/api/v1/shop/favorites", favoritesRoutes);
+app.use("/api/v1/shop/cart", cartRoutes);
+app.use("/api/v1/shop/orders", shopOrdersRouter);
+app.use("/api/v1/shop-orders", adminShopOrdersRouter);
 app.use("/api/v1/contact-messages", contactRoutes);
 app.use("/api/v1/settings", adminSettingsRouter);
 app.use("/api/v1/employees", employeesRoutes);

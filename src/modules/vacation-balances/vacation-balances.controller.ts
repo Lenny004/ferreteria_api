@@ -55,7 +55,7 @@ export async function ensureYearlyBalances(req: Request, res: Response, next: Ne
   try {
     const { year } = EnsureSchema.parse(req.body);
     const result = await service.ensureYearlyBalances(year);
-    res.json({ success: true, data: result });
+    jsonSuccess(res, result);
   } catch (err) {
     next(err);
   }

@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { prisma } from "../../lib/prisma.js";
 import { AppError, BadRequestError, ConflictError } from "../../shared/errors.js";
 import { signAccessToken } from "../../shared/jwt.js";
+import { buildPasswordResetEmail, sendMail } from "../../lib/mail.js";
 
 const shopCustomerSelect = {
   id: true,
@@ -10,6 +11,7 @@ const shopCustomerSelect = {
   fullName: true,
   phone: true,
   isActive: true,
+  onboardingCompletedAt: true,
   lastLoginAt: true,
   createdAt: true,
 } as const;
@@ -74,6 +76,7 @@ export const shopAuthService = {
         email: customer.email,
         fullName: customer.fullName,
         phone: customer.phone,
+        onboardingCompletedAt: customer.onboardingCompletedAt,
         lastLoginAt,
       },
     };
@@ -102,6 +105,15 @@ export const shopAuthService = {
         ...(data.phone !== undefined ? { phone: data.phone?.trim() || null } : {}),
         updatedAt: new Date(),
       },
+      select: shopCustomerSelect,
+    });
+  },
+
+  async completeOnboarding(customerId: string) {
+    await this.me(customerId);
+    return prisma.shopCustomer.update({
+      where: { id: customerId },
+      data: { onboardingCompletedAt: new Date(), updatedAt: new Date() },
       select: shopCustomerSelect,
     });
   },
@@ -157,11 +169,20 @@ export const shopAuthService = {
       },
     });
 
-    // Sin SMTP aún: en desarrollo se expone el token para pruebas.
+    const mail = buildPasswordResetEmail({
+      audience: "SHOP_CUSTOMER",
+      resetToken: rawToken,
+    });
+    const { sent } = await sendMail({
+      to: customer.email,
+      subject: mail.subject,
+      text: mail.text,
+    });
+
     if (process.env.NODE_ENV !== "production") {
-      return { ...generic, resetToken: rawToken, expiresAt };
+      return { ...generic, resetToken: rawToken, expiresAt, emailSent: sent };
     }
-    return generic;
+    return { ...generic, emailSent: sent };
   },
 
   async resetPassword(token: string, newPassword: string) {

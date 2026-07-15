@@ -129,6 +129,8 @@ model Product {
   purchaseOrderDetails PurchaseOrderDetail[]
   stockAlerts          StockAlert[]
   favorites            ProductFavorite[]
+  cartItems            ShopCartItem[]
+  shopOrderLines       ShopOrderLine[]
 
   @@index([familyId], map: "IdxProductsFamily")
   @@index([subfamilyId], map: "IdxProductsSubfamily")
@@ -1192,19 +1194,83 @@ model WebUser {
 
 /// Cliente de la tienda pública B2C (auth distinta de WebUsers).
 model ShopCustomer {
-  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email        String    @unique @map("Email") @db.VarChar(150)
-  passwordHash String    @map("PasswordHash")
-  fullName     String    @map("FullName") @db.VarChar(200)
-  phone        String?   @map("Phone") @db.VarChar(30)
-  isActive     Boolean   @default(true) @map("IsActive")
-  lastLoginAt  DateTime? @map("LastLoginAt") @db.Timestamptz
-  createdAt    DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
-  updatedAt    DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email                 String    @unique @map("Email") @db.VarChar(150)
+  passwordHash          String    @map("PasswordHash")
+  fullName              String    @map("FullName") @db.VarChar(200)
+  phone                 String?   @map("Phone") @db.VarChar(30)
+  isActive              Boolean   @default(true) @map("IsActive")
+  /// null = aún no completó el tour de primer uso en tienda
+  onboardingCompletedAt DateTime? @map("OnboardingCompletedAt") @db.Timestamptz
+  lastLoginAt           DateTime? @map("LastLoginAt") @db.Timestamptz
+  createdAt             DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt             DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  favorites ProductFavorite[]
+  favorites   ProductFavorite[]
+  cartItems   ShopCartItem[]
+  shopOrders  ShopOrder[]
 
   @@map("ShopCustomers")
+  @@schema("system")
+}
+
+/// Ítems del carrito B2C (un renglón por producto por cliente).
+model ShopCartItem {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shopCustomerId String   @map("ShopCustomerId") @db.Uuid
+  productId      String   @map("ProductId") @db.Uuid
+  quantity       Decimal  @map("Quantity") @db.Decimal(12, 3)
+  createdAt      DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  shopCustomer ShopCustomer @relation(fields: [shopCustomerId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([shopCustomerId, productId])
+  @@index([shopCustomerId], map: "IdxShopCartCustomer")
+  @@index([productId], map: "IdxShopCartProduct")
+  @@map("ShopCartItems")
+  @@schema("system")
+}
+
+/// Pedido web B2C derivado del carrito.
+model ShopOrder {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shopCustomerId String    @map("ShopCustomerId") @db.Uuid
+  /// PENDIENTE | CONFIRMADO | ENVIADO | ENTREGADO | CANCELADO
+  status         String    @default("PENDIENTE") @map("Status") @db.VarChar(20)
+  subtotal       Decimal   @map("Subtotal") @db.Decimal(12, 2)
+  taxAmount      Decimal   @default(0) @map("TaxAmount") @db.Decimal(12, 2)
+  total          Decimal   @map("Total") @db.Decimal(12, 2)
+  customerNotes  String?   @map("CustomerNotes") @db.Text
+  adminNotes     String?   @map("AdminNotes") @db.Text
+  createdAt      DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt      DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  shopCustomer ShopCustomer   @relation(fields: [shopCustomerId], references: [id])
+  lines        ShopOrderLine[]
+
+  @@index([shopCustomerId], map: "IdxShopOrdersCustomer")
+  @@index([status], map: "IdxShopOrdersStatus")
+  @@index([createdAt], map: "IdxShopOrdersCreatedAt")
+  @@map("ShopOrders")
+  @@schema("system")
+}
+
+model ShopOrderLine {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shopOrderId String @map("ShopOrderId") @db.Uuid
+  productId  String  @map("ProductId") @db.Uuid
+  quantity   Decimal @map("Quantity") @db.Decimal(12, 3)
+  unitPrice  Decimal @map("UnitPrice") @db.Decimal(12, 2)
+  subtotal   Decimal @map("Subtotal") @db.Decimal(12, 2)
+
+  shopOrder ShopOrder @relation(fields: [shopOrderId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id])
+
+  @@index([shopOrderId], map: "IdxShopOrderLinesOrder")
+  @@index([productId], map: "IdxShopOrderLinesProduct")
+  @@map("ShopOrderLines")
   @@schema("system")
 }
 

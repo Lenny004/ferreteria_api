@@ -134,19 +134,29 @@ async function recalculateRunTotals(runId: string): Promise<PayrollRunSummaryDto
 /**
  * Lista corridas con filtros de período, estado y autor.
  */
-export async function listPayrollRuns(filters: ListPayrollRunsFilters): Promise<PayrollRunSummaryDto[]> {
+export async function listPayrollRuns(
+  filters: ListPayrollRunsFilters,
+): Promise<{ items: PayrollRunSummaryDto[]; total: number; take: number; skip: number }> {
   const where: Prisma.PayrollRunWhereInput = {};
   if (filters.periodId) where.periodId = filters.periodId;
   if (filters.status) where.status = filters.status;
   if (filters.createdBy) where.createdBy = filters.createdBy;
 
-  const rows = await prisma.payrollRun.findMany({
-    where,
-    include: runInclude,
-    orderBy: { createdAt: "desc" },
-  });
+  const take = Math.min(filters.take ?? 50, 200);
+  const skip = filters.skip ?? 0;
 
-  return rows.map(mapRunRow);
+  const [rows, total] = await Promise.all([
+    prisma.payrollRun.findMany({
+      where,
+      include: runInclude,
+      orderBy: { createdAt: "desc" },
+      take,
+      skip,
+    }),
+    prisma.payrollRun.count({ where }),
+  ]);
+
+  return { items: rows.map(mapRunRow), total, take, skip };
 }
 
 /**

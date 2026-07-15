@@ -157,12 +157,22 @@ async function calculateSettlement(
 }
 
 /** Lista liquidaciones, más recientes primero. */
-export async function listTerminations(): Promise<EmployeeTerminationDto[]> {
-  const rows = await prisma.employeeTermination.findMany({
-    include: terminationInclude,
-    orderBy: { terminationDate: "desc" },
-  });
-  return rows.map(mapRow);
+export async function listTerminations(params?: {
+  take?: number;
+  skip?: number;
+}): Promise<{ items: EmployeeTerminationDto[]; total: number; take: number; skip: number }> {
+  const take = Math.min(params?.take ?? 50, 200);
+  const skip = params?.skip ?? 0;
+  const [rows, total] = await Promise.all([
+    prisma.employeeTermination.findMany({
+      include: terminationInclude,
+      orderBy: { terminationDate: "desc" },
+      take,
+      skip,
+    }),
+    prisma.employeeTermination.count(),
+  ]);
+  return { items: rows.map(mapRow), total, take, skip };
 }
 
 /**
