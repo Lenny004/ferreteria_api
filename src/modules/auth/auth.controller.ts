@@ -33,3 +33,22 @@ export async function me(req: Request, res: Response, next: NextFunction) {
     next(err);
   }
 }
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8).max(128),
+});
+
+export async function changePassword(req: Request, res: Response, next: NextFunction) {
+  try {
+    const body = changePasswordSchema.parse(req.body);
+    const result = await authService.changePassword(
+      req.user!.userId,
+      body.currentPassword,
+      body.newPassword,
+    );
+    jsonSuccess(res, result);
+  } catch (err) {
+    next(err);
+  }
+}
