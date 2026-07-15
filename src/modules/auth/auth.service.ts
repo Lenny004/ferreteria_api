@@ -1,7 +1,12 @@
 import bcrypt from "bcryptjs";
+import crypto from "node:crypto";
 import { prisma } from "../../lib/prisma.js";
 import { AppError, BadRequestError } from "../../shared/errors.js";
 import { signAccessToken } from "../../shared/jwt.js";
+
+function hashToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
 
 const webUserPublicSelect = {
   id: true,
@@ -87,5 +92,72 @@ export const authService = {
     });
 
     return { changed: true };
+  },
+
+  async forgotPassword(email: string) {
+    const generic = {
+      message:
+        "Si el correo existe, recibirás instrucciones para restablecer la contraseña.",
+    };
+    const user = await prisma.webUser.findFirst({
+      where: { email: email.trim().toLowerCase(), isActive: true },
+    });
+    if (!user) return generic;
+
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    const tokenHash = hashToken(rawToken);
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+    await prisma.passwordResetToken.updateMany({
+      where: {
+        audience: "WEB_USER",
+        userId: user.id,
+        usedAt: null,
+      },
+      data: { usedAt: new Date() },
+    });
+
+    await prisma.passwordResetToken.create({
+      data: {
+        audience: "WEB_USER",
+        userId: user.id,
+        tokenHash,
+        expiresAt,
+      },
+    });
+
+    if (process.env.NODE_ENV !== "production") {
+      return { ...generic, resetToken: rawToken, expiresAt };
+    }
+    return generic;
+  },
+
+  async resetPassword(token: string, newPassword: string) {
+    if (newPassword.length < 8) {
+      throw new BadRequestError("La nueva contraseña debe tener al menos 8 caracteres");
+    }
+    const tokenHash = hashToken(token);
+    const record = await prisma.passwordResetToken.findUnique({ where: { tokenHash } });
+    if (
+      !record ||
+      record.audience !== "WEB_USER" ||
+      record.usedAt ||
+      record.expiresAt < new Date()
+    ) {
+      throw new BadRequestError("Token de recuperación inválido o expirado");
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await prisma.$transaction([
+      prisma.webUser.update({
+        where: { id: record.userId },
+        data: { passwordHash, updatedAt: new Date() },
+      }),
+      prisma.passwordResetToken.update({
+        where: { id: record.id },
+        data: { usedAt: new Date() },
+      }),
+    ]);
+    return { reset: true };
   },
 };

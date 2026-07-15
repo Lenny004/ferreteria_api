@@ -5,6 +5,14 @@ import { productsService } from "./products.service.js";
 
 const listQuerySchema = z.object({
   q: z.string().optional(),
+  familyId: z.string().uuid().optional(),
+  subfamilyId: z.string().uuid().optional(),
+  minPrice: z.coerce.number().nonnegative().optional(),
+  maxPrice: z.coerce.number().nonnegative().optional(),
+  inStock: z
+    .enum(["true", "false", "1", "0"])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === "true" || v === "1")),
   take: z.coerce.number().int().positive().max(200).optional(),
   skip: z.coerce.number().int().nonnegative().optional(),
 });

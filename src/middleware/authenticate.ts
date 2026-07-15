@@ -25,6 +25,14 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
 
   try {
     const decoded = verifyAccessToken(token);
+    if (decoded.role === "SHOP") {
+      res.status(403).json({
+        success: false,
+        error: "FORBIDDEN",
+        message: "Token de tienda no válido para el panel administrativo",
+      });
+      return;
+    }
     req.user = { userId: decoded.userId, role: decoded.role };
     next();
   } catch {

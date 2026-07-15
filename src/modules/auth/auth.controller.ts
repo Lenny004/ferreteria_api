@@ -52,3 +52,30 @@ export async function changePassword(req: Request, res: Response, next: NextFunc
     next(err);
   }
 }
+
+const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+});
+
+const resetPasswordSchema = z.object({
+  token: z.string().min(20),
+  newPassword: z.string().min(8).max(128),
+});
+
+export async function forgotPassword(req: Request, res: Response, next: NextFunction) {
+  try {
+    const body = forgotPasswordSchema.parse(req.body);
+    jsonSuccess(res, await authService.forgotPassword(body.email));
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function resetPassword(req: Request, res: Response, next: NextFunction) {
+  try {
+    const body = resetPasswordSchema.parse(req.body);
+    jsonSuccess(res, await authService.resetPassword(body.token, body.newPassword));
+  } catch (err) {
+    next(err);
+  }
+}

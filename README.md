@@ -83,8 +83,9 @@ La caja **no** consume esta API en el MVP inicial; escribe directamente en Postg
 | `prisma/seed.ts` | ✅ Implementado | Tipos de medida, familias, empleados demo, Consumidor Final |
 | `docker-compose.yml` | ✅ Implementado | PostgreSQL local puerto **55432** |
 | `database/init.sql` | ✅ Implementado | Extensiones, esquemas y permisos iniciales |
-| `src/` Express API | ✅ Fase 8 (base) | Auth JWT + CRUD empleados/bancos/clientes/productos |
-| Módulos `auth`, `employees`, catálogo | ✅ Fase 8 | Planilla/inventario/compras pendientes (Fases 9–10) |
+| `src/` Express API | ✅ Admin + MVP tienda pública | Auth JWT admin, shop, catálogo público, contacto |
+| Módulos `auth`, `employees`, catálogo | ✅ | Planilla/inventario/compras/fiscal OK |
+| Tienda B2C (catálogo, shop auth, favoritos, contacto) | ✅ MVP | Checkout/pagos pendientes |
 | Tests | 🔲 Pendiente | Fase 10+ |
 
 **Regla operativa:** desde v3.0, `prisma/schema.prisma` es la fuente principal del schema. No ejecutar `Squema.sql` legacy y Prisma sobre la misma BD sin coordinación.
@@ -211,13 +212,13 @@ Estructura objetivo bajo `src/modules/` (Fase 8 en adelante):
 
 | Módulo | Ruta base | Fase | Descripción |
 |---|---|---|---|
-| `auth` | `/api/v1/auth` | 8 | Login JWT admin (`WebUsers`) |
+| `auth` | `/api/v1/auth` | 8 | Login JWT admin (`WebUsers`) + forgot/reset |
 | `employees` | `/api/v1/employees` | 8 | CRUD empleados, asignación PIN, ficha PDF |
 | `employee-bank-accounts` | `/api/v1/employees/:id/banks` | 8 | Cuentas bancarias por empleado |
 | `employee-documents` | `/api/v1/employees/:id/documents` | 8 | Expediente documental |
 | `banks` | `/api/v1/banks` | 8 | Catálogo editable de bancos SV |
 | `required-document-types` | `/api/v1/document-types` | 8 | Tipos de documento requerido |
-| `products` | `/api/v1/products` | 8–9 | CRUD catálogo |
+| `products` | `/api/v1/products` | 8–9 | CRUD catálogo + filtros |
 | `customers` | `/api/v1/customers` | 8 | Maestro fiscal de clientes |
 | `inventory` | `/api/v1/inventory` | 9 | ✅ Entradas, ajustes, Kardex, alertas, import JSON |
 | `suppliers` | `/api/v1/suppliers` | 9b | Maestro de proveedores |
@@ -232,12 +233,18 @@ Estructura objetivo bajo `src/modules/` (Fase 8 en adelante):
 | `dashboard` | `/api/v1/dashboard` | 11 | KPIs ventas, inventario, compras, RRHH |
 | `reports` | `/api/v1/reports` | 10 | Exportaciones generales |
 | `dte` | `/api/v1/dte` | 10 | Consulta DTE (sin exponer certificados) |
+| `public-catalog` | `/api/v1/public/catalog` | Tienda MVP | Catálogo sin JWT (búsqueda/filtros) |
+| `public-settings` | `/api/v1/public/settings` | Tienda MVP | Términos, privacidad, BusinessName |
+| `shop-auth` | `/api/v1/shop/auth` | Tienda MVP | Registro/login/perfil `ShopCustomer` |
+| `favorites` | `/api/v1/shop/favorites` | Tienda MVP | Favoritos de productos |
+| `contact` | `/api/v1/contact-messages` | Tienda MVP | Contáctanos + bandeja admin |
+| `settings` | `/api/v1/settings` | Tienda MVP | CRUD settings (admin) |
 
 ### Validaciones obligatorias del API
 
 - Toda entrada HTTP validada con **Zod** antes de tocar Prisma.
-- JWT obligatorio excepto `POST /api/v1/auth/login`.
-- Roles en middleware: `ADMIN`, `ACCOUNTANT`, `OWNER`.
+- JWT obligatorio excepto: `POST /auth/login`, forgot/reset, rutas `/public/*`, `POST /contact-messages`, y endpoints públicos de `/shop/auth` (register/login/forgot/reset).
+- Roles admin: `ADMIN`, `ACCOUNTANT`, `OWNER`. Rol tienda: `SHOP` (middleware `authenticateShop`).
 - PIN de empleado se hashea aquí; **nunca** se devuelve al frontend.
 - Operaciones de inventario y compras dentro de **transacciones Prisma**.
 - Respuestas de error consistentes: `code`, `message`, `details`, `requestId`.

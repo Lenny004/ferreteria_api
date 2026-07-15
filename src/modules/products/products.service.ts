@@ -9,7 +9,16 @@ const productInclude = {
 } as const;
 
 export const productsService = {
-  async list(params: { q?: string; take?: number; skip?: number }) {
+  async list(params: {
+    q?: string;
+    familyId?: string;
+    subfamilyId?: string;
+    minPrice?: number;
+    maxPrice?: number;
+    inStock?: boolean;
+    take?: number;
+    skip?: number;
+  }) {
     const where: Prisma.ProductWhereInput = { isActive: true };
     if (params.q) {
       where.OR = [
@@ -18,6 +27,15 @@ export const productsService = {
         { barcode: { contains: params.q } },
       ];
     }
+    if (params.familyId) where.familyId = params.familyId;
+    if (params.subfamilyId) where.subfamilyId = params.subfamilyId;
+    if (params.minPrice != null || params.maxPrice != null) {
+      where.salePrice = {};
+      if (params.minPrice != null) where.salePrice.gte = params.minPrice;
+      if (params.maxPrice != null) where.salePrice.lte = params.maxPrice;
+    }
+    if (params.inStock === true) where.currentStock = { gt: 0 };
+
     const take = Math.min(params.take ?? 50, 200);
     const skip = params.skip ?? 0;
     const [items, total] = await Promise.all([
