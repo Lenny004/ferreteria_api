@@ -4,6 +4,7 @@
  * Pobla catálogos maestros y RRHH mínimos para desarrollo local:
  * - MeasurementType / Family (esquema public)
  * - Department / Position / Employee (esquema hr)
+ * - IsrBracket 2026 mensual/quincenal (esquema hr, motor de planilla)
  * - Setting + WebUser admin (esquema system)
  *
  * WebUser demo: admin / admin123 (solo desarrollo).
@@ -132,6 +133,21 @@ async function seedDemoData(): Promise<void> {
       "CanCashier" = TRUE,
       "IsActive" = TRUE;
 
+    -- LeaveType: catálogo básico de ausencias para vacaciones/permisos/bajas médicas (Fase 10b).
+    INSERT INTO hr."LeaveTypes" (name, category, "MaxDaysPerYear", "RequiresDocument", "IsPaid", "AffectsVacationAccrual", "LegalBasis") VALUES
+      ('Vacaciones', 'VACACIONES', 15, FALSE, TRUE, FALSE, 'Código de Trabajo Art. 177'),
+      ('Permiso con goce de sueldo', 'PERMISO_CON_GOCE', NULL, FALSE, TRUE, FALSE, NULL),
+      ('Permiso sin goce de sueldo', 'PERMISO_SIN_GOCE', NULL, FALSE, FALSE, FALSE, NULL),
+      ('Baja médica', 'BAJA_MEDICA', NULL, TRUE, TRUE, FALSE, 'Ley del ISSS')
+    ON CONFLICT (name) DO UPDATE SET
+      category = EXCLUDED.category,
+      "MaxDaysPerYear" = EXCLUDED."MaxDaysPerYear",
+      "RequiresDocument" = EXCLUDED."RequiresDocument",
+      "IsPaid" = EXCLUDED."IsPaid",
+      "AffectsVacationAccrual" = EXCLUDED."AffectsVacationAccrual",
+      "LegalBasis" = EXCLUDED."LegalBasis",
+      "IsActive" = TRUE;
+
     -- Setting: parámetros operativos leídos por caja WPF y futura API admin.
     INSERT INTO system."Settings" ("Key", "Value", "Description") VALUES
       ('IvaPercentage', '13', 'IVA vigente en El Salvador (%)'),
@@ -143,19 +159,44 @@ async function seedDemoData(): Promise<void> {
       "Description" = EXCLUDED."Description",
       "UpdatedAt" = NOW();
 
+    -- IsrBracket: tabla de retención de renta vigente (Decreto Legislativo 293, 30-abr-2025;
+    -- amplía la base exenta a $550 mensuales / $275 quincenales). Se siembra para 2026 porque
+    -- no hay reforma posterior conocida; ajustar aquí si Hacienda publica nueva tabla.
+    INSERT INTO hr."IsrBrackets" (year, "PeriodType", "BracketFrom", "BracketTo", "FixedAmount", "Rate", "ExcessOver", notes) VALUES
+      -- Mensual
+      (2026, 'MENSUAL', 0.01, 550.00, 0, 0, 0, 'Tramo I — exento'),
+      (2026, 'MENSUAL', 550.01, 895.24, 17.67, 0.10, 550.00, 'Tramo II — 10%'),
+      (2026, 'MENSUAL', 895.25, 2038.10, 60.00, 0.20, 895.24, 'Tramo III — 20%'),
+      (2026, 'MENSUAL', 2038.11, NULL, 288.57, 0.30, 2038.10, 'Tramo IV — 30%'),
+      -- Quincenal
+      (2026, 'QUINCENAL', 0.01, 275.00, 0, 0, 0, 'Tramo I — exento'),
+      (2026, 'QUINCENAL', 275.01, 447.62, 8.83, 0.10, 275.00, 'Tramo II — 10%'),
+      (2026, 'QUINCENAL', 447.63, 1019.05, 30.00, 0.20, 447.62, 'Tramo III — 20%'),
+      (2026, 'QUINCENAL', 1019.06, NULL, 144.28, 0.30, 1019.05, 'Tramo IV — 30%')
+    ON CONFLICT (year, "PeriodType", "BracketFrom") DO UPDATE SET
+      "BracketTo" = EXCLUDED."BracketTo",
+      "FixedAmount" = EXCLUDED."FixedAmount",
+      "Rate" = EXCLUDED."Rate",
+      "ExcessOver" = EXCLUDED."ExcessOver",
+      notes = EXCLUDED.notes;
+
     -- WebUser admin demo (password: admin123) — solo desarrollo.
-    INSERT INTO system."WebUsers" ("Username", "Email", "PasswordHash", "Role", "IsActive")
-    VALUES (
+    -- Vincula EmployeeId al Administrador para órdenes de compra / auditoría.
+    INSERT INTO system."WebUsers" ("Username", "Email", "PasswordHash", "Role", "EmployeeId", "IsActive")
+    SELECT
       'admin',
       'admin@ferreteria.local',
       crypt('admin123', gen_salt('bf', 12)),
       'ADMIN',
+      e.id,
       TRUE
-    )
+    FROM hr."Employees" e
+    WHERE e."Dui" = '00000001-0'
     ON CONFLICT ("Username") DO UPDATE SET
       "PasswordHash" = EXCLUDED."PasswordHash",
       "Email" = EXCLUDED."Email",
       "Role" = 'ADMIN',
+      "EmployeeId" = EXCLUDED."EmployeeId",
       "IsActive" = TRUE,
       "UpdatedAt" = NOW();
     END $$;

@@ -98,3 +98,18 @@ export async function importMovements(req: Request, res: Response, next: NextFun
     next(err);
   }
 }
+
+export async function valuation(req: Request, res: Response, next: NextFunction) {
+  try {
+    const query = z
+      .object({
+        q: z.string().optional(),
+        take: z.coerce.number().int().positive().max(500).optional(),
+        skip: z.coerce.number().int().nonnegative().optional(),
+      })
+      .parse(req.query);
+    jsonSuccess(res, await inventoryService.valuation(query));
+  } catch (err) {
+    next(err);
+  }
+}
