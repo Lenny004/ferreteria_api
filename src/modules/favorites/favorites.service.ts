@@ -1,3 +1,7 @@
+/**
+ * Servicio de favoritos de productos para clientes de la tienda en línea.
+ */
+
 import { prisma } from "../../lib/prisma.js";
 import { ConflictError, NotFoundError } from "../../shared/errors.js";
 
@@ -16,6 +20,7 @@ const favoriteInclude = {
 } as const;
 
 export const favoritesService = {
+  /** Lista productos favoritos del cliente ordenados por fecha de alta. */
   async list(shopCustomerId: string) {
     return prisma.productFavorite.findMany({
       where: { shopCustomerId },
@@ -24,6 +29,7 @@ export const favoritesService = {
     });
   },
 
+  /** Agrega producto activo a favoritos (único por cliente+producto). */
   async add(shopCustomerId: string, productId: string) {
     const product = await prisma.product.findFirst({
       where: { id: productId, isActive: true },
@@ -44,6 +50,7 @@ export const favoritesService = {
     });
   },
 
+  /** Quita un producto de favoritos. */
   async remove(shopCustomerId: string, productId: string) {
     const existing = await prisma.productFavorite.findUnique({
       where: {

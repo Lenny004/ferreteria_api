@@ -1,3 +1,8 @@
+/**
+ * Catálogo público de la tienda en línea (sin autenticación).
+ * Expone familias, subfamilias y productos activos con precio y stock.
+ */
+
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { NotFoundError } from "../../shared/errors.js";
@@ -15,6 +20,7 @@ const publicProductSelect = {
   measurementType: { select: { id: true, code: true, name: true, unitLabel: true } },
 } as const;
 
+/** Parámetros de búsqueda y paginación del listado público de productos. */
 export type PublicCatalogListParams = {
   q?: string;
   familyId?: string;
@@ -28,6 +34,7 @@ export type PublicCatalogListParams = {
 };
 
 export const publicCatalogService = {
+  /** Lista familias activas ordenadas por nombre. */
   async listFamilies() {
     return prisma.family.findMany({
       where: { isActive: true },
@@ -36,6 +43,7 @@ export const publicCatalogService = {
     });
   },
 
+  /** Lista subfamilias activas; opcionalmente filtradas por familia. */
   async listSubfamilies(familyId?: string) {
     return prisma.subfamily.findMany({
       where: {
@@ -47,6 +55,10 @@ export const publicCatalogService = {
     });
   },
 
+  /**
+   * Lista productos activos con filtros de texto, categoría, precio y disponibilidad.
+   * `inStock: true` exige `currentStock > 0`.
+   */
   async listProducts(params: PublicCatalogListParams) {
     const where: Prisma.ProductWhereInput = { isActive: true };
     if (params.q) {
@@ -97,6 +109,7 @@ export const publicCatalogService = {
     return { items, total, take, skip };
   },
 
+  /** Detalle de un producto activo por ID. */
   async getProduct(id: string) {
     const product = await prisma.product.findFirst({
       where: { id, isActive: true },

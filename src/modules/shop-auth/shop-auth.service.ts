@@ -1,3 +1,8 @@
+/**
+ * Servicio de autenticación de clientes de la tienda en línea (rol SHOP).
+ * Registro, login JWT, perfil, onboarding y recuperación de contraseña.
+ */
+
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import { prisma } from "../../lib/prisma.js";
@@ -16,11 +21,13 @@ const shopCustomerSelect = {
   createdAt: true,
 } as const;
 
+/** Hash SHA-256 del token de recuperación antes de persistir. */
 function hashToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
 export const shopAuthService = {
+  /** Registra cliente y devuelve JWT de acceso. */
   async register(data: {
     email: string;
     password: string;
@@ -50,6 +57,7 @@ export const shopAuthService = {
     return { accessToken, customer };
   },
 
+  /** Valida credenciales y emite JWT; actualiza `lastLoginAt`. */
   async login(email: string, password: string) {
     const customer = await prisma.shopCustomer.findUnique({
       where: { email: email.trim().toLowerCase() },
@@ -82,6 +90,7 @@ export const shopAuthService = {
     };
   },
 
+  /** Perfil del cliente autenticado. */
   async me(customerId: string) {
     const customer = await prisma.shopCustomer.findUnique({
       where: { id: customerId },
@@ -93,6 +102,7 @@ export const shopAuthService = {
     return customer;
   },
 
+  /** Actualiza nombre y teléfono del perfil. */
   async updateProfile(
     customerId: string,
     data: Partial<{ fullName: string; phone: string | null }>,
@@ -109,6 +119,7 @@ export const shopAuthService = {
     });
   },
 
+  /** Marca onboarding como completado (`onboardingCompletedAt`). */
   async completeOnboarding(customerId: string) {
     await this.me(customerId);
     return prisma.shopCustomer.update({
@@ -118,6 +129,7 @@ export const shopAuthService = {
     });
   },
 
+  /** Cambia contraseña validando la actual. */
   async changePassword(customerId: string, currentPassword: string, newPassword: string) {
     const customer = await prisma.shopCustomer.findUnique({ where: { id: customerId } });
     if (!customer || !customer.isActive) {
@@ -136,11 +148,14 @@ export const shopAuthService = {
     return { changed: true };
   },
 
+  /**
+   * Inicia recuperación de contraseña.
+   * Respuesta genérica para no revelar si el correo existe; token válido 1 hora.
+   */
   async forgotPassword(email: string) {
     const customer = await prisma.shopCustomer.findUnique({
       where: { email: email.trim().toLowerCase() },
     });
-    // Respuesta genérica para no filtrar existencia de cuentas
     const generic = {
       message:
         "Si el correo existe, recibirás instrucciones para restablecer la contraseña.",
@@ -185,6 +200,7 @@ export const shopAuthService = {
     return { ...generic, emailSent: sent };
   },
 
+  /** Restablece contraseña con token de un solo uso. */
   async resetPassword(token: string, newPassword: string) {
     if (newPassword.length < 8) {
       throw new BadRequestError("La nueva contraseña debe tener al menos 8 caracteres");

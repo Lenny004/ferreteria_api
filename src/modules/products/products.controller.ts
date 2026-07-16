@@ -1,3 +1,6 @@
+/**
+ * Capa HTTP para el catálogo de productos del inventario.
+ */
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
@@ -37,6 +40,7 @@ const updateSchema = createSchema.partial().extend({
   isActive: z.boolean().optional(),
 });
 
+/** GET `/` — Lista productos activos paginados con filtros de búsqueda, familia y stock. */
 export async function list(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await productsService.list(listQuerySchema.parse(req.query)));
@@ -45,6 +49,7 @@ export async function list(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** GET `/:id` — Detalle de un producto con familia, subfamilia y unidad de medida. */
 export async function getById(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await productsService.getById(req.params.id as string));
@@ -53,6 +58,7 @@ export async function getById(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** POST `/` — Crea un producto en el catálogo. */
 export async function create(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await productsService.create(createSchema.parse(req.body)), 201);
@@ -61,6 +67,7 @@ export async function create(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** PATCH `/:id` — Actualización parcial de producto. */
 export async function update(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(

@@ -1,3 +1,7 @@
+/**
+ * Capa HTTP de tipos de documento requeridos (RRHH).
+ */
+
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
@@ -15,6 +19,7 @@ const updateSchema = createSchema.partial().extend({
   isActive: z.boolean().optional(),
 });
 
+/** GET `/` — lista tipos de documento activos. */
 export async function list(_req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await documentTypesService.list());
@@ -23,6 +28,7 @@ export async function list(_req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** POST `/` — crea tipo de documento. */
 export async function create(req: Request, res: Response, next: NextFunction) {
   try {
     const body = createSchema.parse(req.body);
@@ -32,6 +38,7 @@ export async function create(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** PATCH `/:id` — actualiza tipo de documento. */
 export async function update(req: Request, res: Response, next: NextFunction) {
   try {
     const body = updateSchema.parse(req.body);

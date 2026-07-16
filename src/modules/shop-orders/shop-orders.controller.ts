@@ -1,3 +1,7 @@
+/**
+ * Capa HTTP de pedidos de tienda: checkout cliente y gestión admin.
+ */
+
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
@@ -23,6 +27,7 @@ const adminUpdateSchema = z.object({
   adminNotes: z.string().max(2000).nullable().optional(),
 });
 
+/** POST `/checkout` — convierte carrito en pedido (cliente SHOP). */
 export async function checkout(req: Request, res: Response, next: NextFunction) {
   try {
     const body = checkoutSchema.parse(req.body ?? {});
@@ -36,6 +41,7 @@ export async function checkout(req: Request, res: Response, next: NextFunction) 
   }
 }
 
+/** GET `/` — pedidos del cliente autenticado. */
 export async function listMine(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await shopOrdersService.listMine(req.user!.userId));
@@ -44,6 +50,7 @@ export async function listMine(req: Request, res: Response, next: NextFunction) 
   }
 }
 
+/** GET `/:id` — detalle de pedido propio. */
 export async function getMine(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(
@@ -55,6 +62,7 @@ export async function getMine(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** GET `/` — lista pedidos (admin). */
 export async function listAdmin(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await shopOrdersService.listAdmin(adminListSchema.parse(req.query)));
@@ -63,6 +71,7 @@ export async function listAdmin(req: Request, res: Response, next: NextFunction)
   }
 }
 
+/** PATCH `/:id` — actualiza estado o notas (admin). */
 export async function updateAdmin(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(

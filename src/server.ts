@@ -1,3 +1,6 @@
+/**
+ * Punto de entrada HTTP: carga variables de entorno y arranca el listener.
+ */
 import "dotenv/config";
 import app from "./app.js";
 

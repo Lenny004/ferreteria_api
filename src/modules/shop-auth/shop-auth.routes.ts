@@ -1,3 +1,8 @@
+/**
+ * Rutas de autenticación de la tienda (`/api/v1/shop/auth`).
+ * Endpoints públicos de registro/login/recuperación; perfil requiere JWT SHOP.
+ */
+
 import { Router } from "express";
 import { authenticateShop } from "../../middleware/authenticate-shop.js";
 import { forgotPasswordRateLimiter } from "../../middleware/rate-limit.js";

@@ -1,3 +1,8 @@
+/**
+ * Servicio de inventario: movimientos, kardex, alertas de stock y valuación.
+ * Los tipos VENTA/DEVOLUCION los registra la caja WPF; el admin solo entradas y ajustes.
+ */
+
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { BadRequestError, NotFoundError } from "../../shared/errors.js";
@@ -28,6 +33,10 @@ function toDecimal(value: number | string): Prisma.Decimal {
   return new Prisma.Decimal(value);
 }
 
+/**
+ * Sincroniza alertas de stock mínimo tras un movimiento.
+ * Crea o actualiza alerta abierta si `currentStock < minStock`; la resuelve si el stock se recupera.
+ */
 async function syncStockAlert(
   tx: Prisma.TransactionClient,
   productId: string,
@@ -64,6 +73,7 @@ async function syncStockAlert(
 }
 
 export const inventoryService = {
+  /** Lista movimientos de inventario con filtros opcionales y paginación. */
   async listMovements(params: {
     productId?: string;
     movementType?: string;
@@ -91,6 +101,11 @@ export const inventoryService = {
     return { items, total, take, skip };
   },
 
+  /**
+   * Kardex de un producto: historial de movimientos con saldo valorado por línea.
+   * `valuedBalance` ≈ `stockAfter × unitCost` del movimiento.
+   * `product.inventoryValue` = stock actual × costo promedio.
+   */
   async kardex(productId: string, params: { take?: number; skip?: number } = {}) {
     const product = await prisma.product.findUnique({
       where: { id: productId },
@@ -119,7 +134,6 @@ export const inventoryService = {
       prisma.inventoryMovement.count({ where: { productId } }),
     ]);
 
-    /** Saldo valorado ≈ stockAfter × unitCost del movimiento (aprox. Kardex valorado). */
     const valuedItems = items.map((m) => ({
       ...m,
       valuedBalance: new Prisma.Decimal(m.stockAfter)
@@ -143,7 +157,11 @@ export const inventoryService = {
     };
   },
 
-  /** Valuación total: Σ (stock × costo promedio) de productos activos. */
+  /**
+   * Valuación de inventario por producto activo.
+   * Por ítem: `inventoryValue = currentStock × costPrice`.
+   * `totalInventoryValue`: Σ de todos los activos (sin paginar).
+   */
   async valuation(params: { take?: number; skip?: number; q?: string } = {}) {
     const where: Prisma.ProductWhereInput = { isActive: true };
     if (params.q) {
@@ -196,6 +214,11 @@ export const inventoryService = {
     return { items, total, take, skip, totalInventoryValue: totalValue.toString() };
   },
 
+  /**
+   * Registra un movimiento manual (entrada compra o ajuste).
+   * En entradas con `unitCost` explícito recalcula costo promedio ponderado:
+   * `(stock×costo + qty×nuevo) / (stock+qty)`; si stock ≤ 0 → nuevo costo.
+   */
   async createMovement(input: {
     productId: string;
     movementType: AdminMovementType;
@@ -236,7 +259,6 @@ export const inventoryService = {
           : new Prisma.Decimal(product.costPrice);
       const totalCost = unitCost.mul(toDecimal(Math.abs(signedQty)));
 
-      /** Entradas con costo: recalcular promedio ponderado. */
       let nextCostPrice = new Prisma.Decimal(product.costPrice);
       if (
         (input.movementType === "ENTRADA_COMPRA" || input.movementType === "AJUSTE_ENTRADA") &&
@@ -285,6 +307,7 @@ export const inventoryService = {
     });
   },
 
+  /** Lista alertas de stock bajo mínimo, filtrables por estado resuelto. */
   async listAlerts(params: { resolved?: boolean; take?: number; skip?: number } = {}) {
     const where: Prisma.StockAlertWhereInput = {};
     if (params.resolved !== undefined) where.isResolved = params.resolved;
@@ -310,6 +333,7 @@ export const inventoryService = {
     return { items, total, take, skip };
   },
 
+  /** Marca una alerta como resuelta manualmente. */
   async resolveAlert(id: string) {
     const alert = await prisma.stockAlert.findUnique({ where: { id } });
     if (!alert) throw new NotFoundError("Alerta no encontrada");
@@ -326,7 +350,10 @@ export const inventoryService = {
     });
   },
 
-  /** Importación masiva de entradas/ajustes (JSON). Excel nativo queda para iteración con ExcelJS. */
+  /**
+   * Importación masiva de entradas/ajustes vía JSON (hasta 500 líneas).
+   * Procesa línea a línea; errores no detienen el lote.
+   */
   async importMovements(
     lines: Array<{
       productCode: string;

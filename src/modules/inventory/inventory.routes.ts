@@ -1,3 +1,8 @@
+/**
+ * Rutas de inventario (`/api/v1/inventory`).
+ * Requiere autenticación; escritura restringida a ADMIN u OWNER.
+ */
+
 import { Router } from "express";
 import { authenticate } from "../../middleware/authenticate.js";
 import { requireRole } from "../../middleware/require-role.js";

@@ -1,3 +1,8 @@
+/**
+ * Rutas del catálogo público (`/api/v1/public/catalog`).
+ * Acceso anónimo; solo productos y categorías activas.
+ */
+
 import { Router } from "express";
 import * as controller from "./public-catalog.controller.js";
 

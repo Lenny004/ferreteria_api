@@ -1,3 +1,7 @@
+/**
+ * Capa HTTP del catálogo público de la tienda (sin autenticación).
+ */
+
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
@@ -18,6 +22,7 @@ const listQuerySchema = z.object({
   sort: z.enum(["price_asc", "price_desc", "name_asc", "name_desc"]).optional(),
 });
 
+/** GET `/families` — familias de producto activas. */
 export async function listFamilies(_req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await publicCatalogService.listFamilies());
@@ -26,6 +31,7 @@ export async function listFamilies(_req: Request, res: Response, next: NextFunct
   }
 }
 
+/** GET `/subfamilies` — subfamilias activas (filtro opcional `familyId`). */
 export async function listSubfamilies(req: Request, res: Response, next: NextFunction) {
   try {
     const familyId = z.string().uuid().optional().parse(req.query.familyId);
@@ -35,6 +41,7 @@ export async function listSubfamilies(req: Request, res: Response, next: NextFun
   }
 }
 
+/** GET `/products` — listado paginado de productos con filtros. */
 export async function listProducts(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await publicCatalogService.listProducts(listQuerySchema.parse(req.query)));
@@ -43,6 +50,7 @@ export async function listProducts(req: Request, res: Response, next: NextFuncti
   }
 }
 
+/** GET `/products/:id` — detalle de un producto activo. */
 export async function getProduct(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await publicCatalogService.getProduct(req.params.id as string));

@@ -1,7 +1,12 @@
+/**
+ * Servicio de tipos de documento requeridos para expedientes de empleados (RRHH).
+ */
+
 import { prisma } from "../../lib/prisma.js";
 import { NotFoundError } from "../../shared/errors.js";
 
 export const documentTypesService = {
+  /** Lista tipos de documento activos. */
   async list() {
     return prisma.requiredDocumentType.findMany({
       where: { isActive: true },
@@ -9,6 +14,7 @@ export const documentTypesService = {
     });
   },
 
+  /** Crea tipo de documento requerido. */
   async create(data: {
     name: string;
     description?: string | null;
@@ -27,6 +33,7 @@ export const documentTypesService = {
     });
   },
 
+  /** Actualiza tipo de documento o su estado activo. */
   async update(
     id: string,
     data: Partial<{

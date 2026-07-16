@@ -1,3 +1,8 @@
+/**
+ * Rutas del dashboard administrativo (`/api/v1/dashboard`).
+ * Requiere autenticación y rol ADMIN, ACCOUNTANT u OWNER.
+ */
+
 import { Router } from "express";
 import { authenticate } from "../../middleware/authenticate.js";
 import { requireRole } from "../../middleware/require-role.js";

@@ -1,3 +1,7 @@
+/**
+ * Servicio de días feriados para planilla y asistencia.
+ */
+
 import { prisma } from "../../lib/prisma.js";
 import { NotFoundError } from "../../shared/errors.js";
 
@@ -12,6 +16,7 @@ const holidaySelect = {
 } as const;
 
 export const holidaysService = {
+  /** Lista feriados activos de un año calendario. */
   async list(year: number) {
     return prisma.holiday.findMany({
       where: { year, isActive: true },
@@ -20,6 +25,7 @@ export const holidaysService = {
     });
   },
 
+  /** Crea feriado para un año. */
   async create(data: {
     name: string;
     date: string;
@@ -37,6 +43,7 @@ export const holidaysService = {
     });
   },
 
+  /** Actualiza feriado o lo desactiva. */
   async update(
     id: string,
     data: Partial<{

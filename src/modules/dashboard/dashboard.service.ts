@@ -1,31 +1,70 @@
+/**
+ * Servicio del panel de control administrativo.
+ * Agrega KPIs de ventas, inventario, compras y RRHH en una sola respuesta.
+ * Solo considera órdenes de caja con estado `COMPLETADA`.
+ */
+
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 
+/** Convierte `Decimal` de Prisma a `number`; `null`/`undefined` → 0. */
 function toNum(d: Prisma.Decimal | number | string | null | undefined): number {
   if (d == null) return 0;
   if (typeof d === "object") return parseFloat(d.toString());
   return Number(d);
 }
 
+/** Redondea a 2 decimales (moneda). */
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** Inicio del día en UTC (00:00:00.000). */
 function startOfDayUTC(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }
 
+/** Suma `days` días calendario en UTC. */
 function addDays(d: Date, days: number): Date {
   const x = new Date(d);
   x.setUTCDate(x.getUTCDate() + days);
   return x;
 }
 
+/** Primer instante del mes en UTC. */
 function startOfMonthUTC(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
 }
 
 export const dashboardService = {
+  /**
+   * Resumen ejecutivo del negocio para el dashboard admin.
+   *
+   * **Ventas**
+   * - `today` / `week` / `month`: Σ `order.total` de órdenes `COMPLETADA` en el rango.
+   *   - Hoy: `[todayStart, mañana)`.
+   *   - Semana: últimos 7 días incluyendo hoy (`weekStart = hoy − 6`).
+   *   - Mes: desde el día 1 del mes actual hasta mañana.
+   * - `prevMonth` / `monthOverMonthPct`: mes calendario anterior completo.
+   *   - Variación MoM: `((mes − mesAnterior) / mesAnterior) × 100`; `null` si mes anterior = 0.
+   * - `avgTicket`: `ventasMes / transaccionesMes` (0 si no hay transacciones).
+   * - `topProducts`: top 5 por `subtotal` en líneas del mes actual.
+   *
+   * **Inventario**
+   * - `totalValue`: Σ (`currentStock` × `costPrice`) de productos activos.
+   * - `belowMin`: productos activos con `currentStock < minStock`.
+   * - `movementsToday`: movimientos agrupados por tipo en el día UTC actual.
+   *
+   * **Compras**
+   * - `pendingOrders`: OC en `BORRADOR` o `CONFIRMADA`.
+   * - `monthTotal`: Σ `total` de OC `RECIBIDA` con `receivedAt` en el mes actual.
+   * - `topSuppliers`: top 5 proveedores por monto recibido en el mes.
+   *
+   * **RRHH**
+   * - `headcountByContract` / `activeEmployees`: empleados activos por tipo de contrato.
+   * - `documentsExpiring30d`: documentos con vencimiento en los próximos 30 días.
+   * - `upcomingPayroll`: hasta 5 corridas en `EN_REVISION` o `APROBADA`.
+   */
   async summary() {
     const now = new Date();
     const todayStart = startOfDayUTC(now);

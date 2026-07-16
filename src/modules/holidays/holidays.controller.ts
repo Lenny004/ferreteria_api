@@ -1,3 +1,7 @@
+/**
+ * Capa HTTP de días feriados (RRHH / planilla).
+ */
+
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
@@ -20,6 +24,7 @@ const updateSchema = createSchema.partial().extend({
 
 const idParamSchema = z.object({ id: z.string().uuid() });
 
+/** GET `/` — feriados del año (`?year=`). */
 export async function list(req: Request, res: Response, next: NextFunction) {
   try {
     const { year } = listQuerySchema.parse(req.query);
@@ -30,6 +35,7 @@ export async function list(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** POST `/` — crea feriado. */
 export async function create(req: Request, res: Response, next: NextFunction) {
   try {
     const body = createSchema.parse(req.body);
@@ -40,6 +46,7 @@ export async function create(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** PATCH `/:id` — actualiza feriado. */
 export async function update(req: Request, res: Response, next: NextFunction) {
   try {
     const { id } = idParamSchema.parse(req.params);
