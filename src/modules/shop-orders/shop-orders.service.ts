@@ -6,19 +6,18 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { BadRequestError, NotFoundError } from "../../shared/errors.js";
+import {
+  resolveInitialPayment,
+  type ShopPaymentMethod,
+} from "../shop-payments/shop-payments.service.js";
+import { shopOrderInclude } from "./shop-order.include.js";
 
-const orderInclude = {
-  lines: {
-    include: {
-      product: {
-        select: { id: true, code: true, description: true },
-      },
-    },
-  },
-  shopCustomer: {
-    select: { id: true, email: true, fullName: true, phone: true },
-  },
-} as const;
+export type CheckoutOptions = {
+  customerNotes?: string | null;
+  deliveryType?: "RETIRO_TIENDA" | "ENVIO";
+  shippingAddress?: string;
+  paymentMethod?: ShopPaymentMethod;
+};
 
 /** Lee tasa de IVA desde ajuste `IvaPercentage`; fallback 13%. */
 async function getIvaRate(): Promise<number> {
@@ -33,7 +32,11 @@ export const shopOrdersService = {
    * Totales: `subtotal` = Σ (precio × qty); `taxAmount` = subtotal × IVA; `total` = subtotal + IVA.
    * Por cada línea: movimiento VENTA, actualización de stock y alerta si queda bajo mínimo.
    */
-  async checkout(shopCustomerId: string, customerNotes?: string | null) {
+  async checkout(shopCustomerId: string, options: CheckoutOptions = {}) {
+    const deliveryType = options.deliveryType ?? "RETIRO_TIENDA";
+    const shippingAddress =
+      deliveryType === "ENVIO" ? options.shippingAddress?.trim() || null : null;
+    const paymentMethod = options.paymentMethod ?? null;
     const cart = await prisma.shopCartItem.findMany({
       where: { shopCustomerId },
       include: {
@@ -73,6 +76,8 @@ export const shopOrdersService = {
     const taxAmount = Number((subtotal * ivaRate).toFixed(2));
     const total = Number((subtotal + taxAmount).toFixed(2));
 
+    const initialPayment = paymentMethod ? resolveInitialPayment(paymentMethod, total) : null;
+
     const order = await prisma.$transaction(async (tx) => {
       const created = await tx.shopOrder.create({
         data: {
@@ -81,7 +86,11 @@ export const shopOrdersService = {
           subtotal,
           taxAmount,
           total,
-          customerNotes: customerNotes?.trim() || null,
+          deliveryType,
+          shippingAddress,
+          paymentMethod,
+          paymentStatus: initialPayment?.orderPaymentStatus ?? "PENDIENTE",
+          customerNotes: options.customerNotes?.trim() || null,
           lines: {
             create: linesData.map(({ productId, quantity, unitPrice, subtotal: lineSub }) => ({
               productId,
@@ -90,8 +99,20 @@ export const shopOrdersService = {
               subtotal: lineSub,
             })),
           },
+          ...(initialPayment
+            ? {
+                payments: {
+                  create: {
+                    method: initialPayment.method,
+                    amount: initialPayment.amount,
+                    status: initialPayment.status,
+                    providerRef: initialPayment.providerRef,
+                  },
+                },
+              }
+            : {}),
         },
-        include: orderInclude,
+        include: shopOrderInclude,
       });
 
       for (const item of cart) {
@@ -145,7 +166,7 @@ export const shopOrdersService = {
   async listMine(shopCustomerId: string) {
     return prisma.shopOrder.findMany({
       where: { shopCustomerId },
-      include: orderInclude,
+      include: shopOrderInclude,
       orderBy: { createdAt: "desc" },
       take: 50,
     });
@@ -155,7 +176,7 @@ export const shopOrdersService = {
   async getMine(shopCustomerId: string, orderId: string) {
     const order = await prisma.shopOrder.findFirst({
       where: { id: orderId, shopCustomerId },
-      include: orderInclude,
+      include: shopOrderInclude,
     });
     if (!order) throw new NotFoundError("Pedido no encontrado");
     return order;
@@ -177,7 +198,7 @@ export const shopOrdersService = {
     const [items, total] = await Promise.all([
       prisma.shopOrder.findMany({
         where,
-        include: orderInclude,
+        include: shopOrderInclude,
         orderBy: { createdAt: "desc" },
         take,
         skip,
@@ -210,7 +231,7 @@ export const shopOrdersService = {
         ...(data.adminNotes !== undefined ? { adminNotes: data.adminNotes } : {}),
         updatedAt: new Date(),
       },
-      include: orderInclude,
+      include: shopOrderInclude,
     });
   },
 };

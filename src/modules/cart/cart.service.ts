@@ -13,9 +13,13 @@ const cartInclude = {
       id: true,
       code: true,
       description: true,
+      shortDescription: true,
+      brand: true,
+      imageUrl: true,
       salePrice: true,
       currentStock: true,
       isActive: true,
+      isWebVisible: true,
       measurementType: { select: { unitLabel: true } },
     },
   },
@@ -46,7 +50,7 @@ export const cartService = {
       throw new BadRequestError("La cantidad debe ser mayor a cero");
     }
     const product = await prisma.product.findFirst({
-      where: { id: productId, isActive: true },
+      where: { id: productId, isActive: true, isWebVisible: true },
     });
     if (!product) throw new NotFoundError("Producto no encontrado");
     if (Number(product.currentStock) < quantity) {

@@ -34,12 +34,19 @@ model MeasurementType {
   @@schema("public")
 }
 
-/// Familia — categoría de primer nivel del catálogo de productos.
+/// Familia — departamento / categoría de primer nivel del catálogo (tienda + POS).
 model Family {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   code        String   @unique @db.VarChar(10)
   name        String   @db.VarChar(100)
   description String?  @db.VarChar(300)
+  /// Slug amigable para URLs de tienda (/tienda?departamento=herramientas)
+  slug        String?  @unique @db.VarChar(80)
+  /// Clave de icono Lucide/UI (Hammer, Zap, Wrench, etc.)
+  iconKey     String?  @map("IconKey") @db.VarChar(40)
+  /// Banner o imagen representativa del departamento
+  imageUrl    String?  @map("ImageUrl") @db.VarChar(500)
+  sortOrder   Int      @default(0) @map("SortOrder")
   isActive    Boolean  @default(true) @map("IsActive")
   createdAt   DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt   DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
@@ -47,6 +54,7 @@ model Family {
   subfamilies Subfamily[]
   products    Product[]
 
+  @@index([sortOrder], map: "IdxFamiliesSortOrder")
   @@map("Families")
   @@schema("public")
 }
@@ -58,6 +66,8 @@ model Subfamily {
   code        String   @db.VarChar(10)
   name        String   @db.VarChar(100)
   description String?  @db.VarChar(300)
+  slug        String?  @db.VarChar(80)
+  sortOrder   Int      @default(0) @map("SortOrder")
   isActive    Boolean  @default(true) @map("IsActive")
   createdAt   DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt   DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
@@ -67,6 +77,7 @@ model Subfamily {
 
   @@unique([familyId, code])
   @@index([familyId], map: "IdxSubfamiliesFamily")
+  @@index([familyId, sortOrder], map: "IdxSubfamiliesSort")
   @@map("Subfamilies")
   @@schema("public")
 }
@@ -103,6 +114,10 @@ model Product {
   code              String   @unique @db.VarChar(30)
   barcode           String?  @unique @db.VarChar(50)
   description       String   @db.VarChar(200)
+  shortDescription  String?  @map("ShortDescription") @db.VarChar(500)
+  brand             String?  @map("Brand") @db.VarChar(100)
+  /// Imagen principal para tienda (URL absoluta o path público)
+  imageUrl          String?  @map("ImageUrl") @db.VarChar(500)
   familyId          String   @map("FamilyId") @db.Uuid
   subfamilyId       String?  @map("SubfamilyId") @db.Uuid
   measurementTypeId String   @map("MeasurementTypeId") @db.Uuid
@@ -116,6 +131,8 @@ model Product {
   minStock          Decimal  @default(0) @map("MinStock") @db.Decimal(12, 3)
   maxStock          Decimal? @map("MaxStock") @db.Decimal(12, 3)
   reorderPoint      Decimal? @map("ReorderPoint") @db.Decimal(12, 3)
+  /// Visible en catálogo web (puede seguir vendiéndose en POS)
+  isWebVisible      Boolean  @default(true) @map("IsWebVisible")
   isActive          Boolean  @default(true) @map("IsActive")
   notes             String?  @db.Text
   createdAt         DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
@@ -134,6 +151,7 @@ model Product {
 
   @@index([familyId], map: "IdxProductsFamily")
   @@index([subfamilyId], map: "IdxProductsSubfamily")
+  @@index([isWebVisible], map: "IdxProductsWebVisible")
   @@map("Products")
   @@schema("public")
 }
@@ -1235,25 +1253,58 @@ model ShopCartItem {
 
 /// Pedido web B2C derivado del carrito.
 model ShopOrder {
-  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  shopCustomerId String    @map("ShopCustomerId") @db.Uuid
-  /// PENDIENTE | CONFIRMADO | ENVIADO | ENTREGADO | CANCELADO
-  status         String    @default("PENDIENTE") @map("Status") @db.VarChar(20)
-  subtotal       Decimal   @map("Subtotal") @db.Decimal(12, 2)
-  taxAmount      Decimal   @default(0) @map("TaxAmount") @db.Decimal(12, 2)
-  total          Decimal   @map("Total") @db.Decimal(12, 2)
-  customerNotes  String?   @map("CustomerNotes") @db.Text
-  adminNotes     String?   @map("AdminNotes") @db.Text
-  createdAt      DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
-  updatedAt      DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shopCustomerId  String    @map("ShopCustomerId") @db.Uuid
+  /// PENDIENTE | CONFIRMADA | LISTA_RETIRO | ENTREGADA | CANCELADA
+  status          String    @default("PENDIENTE") @map("Status") @db.VarChar(20)
+  subtotal        Decimal   @map("Subtotal") @db.Decimal(12, 2)
+  taxAmount       Decimal   @default(0) @map("TaxAmount") @db.Decimal(12, 2)
+  total           Decimal   @map("Total") @db.Decimal(12, 2)
+  /// RETIRO_TIENDA | ENVIO
+  deliveryType    String    @default("RETIRO_TIENDA") @map("DeliveryType") @db.VarChar(20)
+  /// Dirección de envío (texto libre; null si retiro en tienda)
+  shippingAddress String?   @map("ShippingAddress") @db.VarChar(500)
+  /// PENDIENTE | PAGADO | REEMBOLSADO | FALLIDO
+  paymentStatus   String    @default("PENDIENTE") @map("PaymentStatus") @db.VarChar(20)
+  /// EFECTIVO_RETIRO | TRANSFERENCIA | TARJETA | CONTRA_ENTREGA
+  paymentMethod   String?   @map("PaymentMethod") @db.VarChar(30)
+  customerNotes   String?   @map("CustomerNotes") @db.Text
+  adminNotes      String?   @map("AdminNotes") @db.Text
+  createdAt       DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  shopCustomer ShopCustomer   @relation(fields: [shopCustomerId], references: [id])
+  shopCustomer ShopCustomer    @relation(fields: [shopCustomerId], references: [id])
   lines        ShopOrderLine[]
+  payments     ShopPayment[]
 
   @@index([shopCustomerId], map: "IdxShopOrdersCustomer")
   @@index([status], map: "IdxShopOrdersStatus")
+  @@index([paymentStatus], map: "IdxShopOrdersPaymentStatus")
   @@index([createdAt], map: "IdxShopOrdersCreatedAt")
   @@map("ShopOrders")
+  @@schema("system")
+}
+
+/// Pago asociado a un pedido web (simulado o referencia de pasarela).
+model ShopPayment {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shopOrderId String   @map("ShopOrderId") @db.Uuid
+  /// EFECTIVO_RETIRO | TRANSFERENCIA | TARJETA | CONTRA_ENTREGA
+  method      String   @map("Method") @db.VarChar(30)
+  amount      Decimal  @map("Amount") @db.Decimal(12, 2)
+  /// PENDIENTE | COMPLETADO | FALLIDO | REEMBOLSADO
+  status      String   @default("PENDIENTE") @map("Status") @db.VarChar(20)
+  /// Referencia externa (transferencia, mock charge id, etc.)
+  providerRef String?  @map("ProviderRef") @db.VarChar(100)
+  /// Detalle libre (últimos 4 dígitos simulados, banco, etc.)
+  notes       String?  @map("Notes") @db.VarChar(300)
+  createdAt   DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  shopOrder ShopOrder @relation(fields: [shopOrderId], references: [id], onDelete: Cascade)
+
+  @@index([shopOrderId], map: "IdxShopPaymentsOrder")
+  @@map("ShopPayments")
   @@schema("system")
 }
 
