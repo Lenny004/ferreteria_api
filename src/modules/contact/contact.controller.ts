@@ -1,3 +1,7 @@
+/**
+ * Capa HTTP de mensajes de contacto: envío público y gestión admin.
+ */
+
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
@@ -23,6 +27,7 @@ const updateSchema = z.object({
   adminNotes: z.string().max(2000).nullable().optional(),
 });
 
+/** POST `/` — envía mensaje desde formulario público (sin auth). */
 export async function createPublic(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await contactService.create(createSchema.parse(req.body)), 201);
@@ -31,6 +36,7 @@ export async function createPublic(req: Request, res: Response, next: NextFuncti
   }
 }
 
+/** GET `/` — lista mensajes (admin). */
 export async function list(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await contactService.list(listQuerySchema.parse(req.query)));
@@ -39,6 +45,7 @@ export async function list(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** GET `/:id` — detalle de un mensaje (admin). */
 export async function getById(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await contactService.getById(req.params.id as string));
@@ -47,6 +54,7 @@ export async function getById(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** PATCH `/:id` — actualiza estado o notas (admin). */
 export async function update(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(

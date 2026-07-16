@@ -1,3 +1,7 @@
+/**
+ * Capa HTTP de favoritos de la tienda (cliente autenticado SHOP).
+ */
+
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess, jsonSuccessEmpty } from "../../shared/api-response.js";
@@ -7,6 +11,7 @@ const productIdSchema = z.object({
   productId: z.string().uuid(),
 });
 
+/** GET `/` — lista favoritos del cliente. */
 export async function list(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await favoritesService.list(req.user!.userId));
@@ -15,6 +20,7 @@ export async function list(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** POST `/` — agrega producto a favoritos. */
 export async function add(req: Request, res: Response, next: NextFunction) {
   try {
     const { productId } = productIdSchema.parse(req.body);
@@ -24,6 +30,7 @@ export async function add(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** DELETE `/:productId` — quita producto de favoritos. */
 export async function remove(req: Request, res: Response, next: NextFunction) {
   try {
     const productId = z.string().uuid().parse(req.params.productId);

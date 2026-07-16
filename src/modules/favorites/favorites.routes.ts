@@ -1,3 +1,8 @@
+/**
+ * Rutas de favoritos de la tienda (`/api/v1/shop/favorites`).
+ * Requiere autenticación de cliente SHOP.
+ */
+
 import { Router } from "express";
 import { authenticateShop } from "../../middleware/authenticate-shop.js";
 import * as controller from "./favorites.controller.js";

@@ -1,3 +1,8 @@
+/**
+ * Rutas fiscales (`/api/v1/fiscal`): libros IVA y consulta de DTE.
+ * Lectura: ADMIN, ACCOUNTANT u OWNER. Escritura: mismos roles.
+ */
+
 import { Router } from "express";
 import { authenticate } from "../../middleware/authenticate.js";
 import { requireRole } from "../../middleware/require-role.js";

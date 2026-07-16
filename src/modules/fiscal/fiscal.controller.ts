@@ -1,3 +1,7 @@
+/**
+ * Capa HTTP fiscal: libros de IVA, cierre, exportación Excel y consulta de DTE.
+ */
+
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
@@ -29,6 +33,7 @@ const dteQuerySchema = z.object({
   skip: z.coerce.number().int().nonnegative().optional(),
 });
 
+/** GET `/iva-reports` — lista libros IVA guardados. */
 export async function listReports(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await fiscalService.listReports(listQuerySchema.parse(req.query)));
@@ -37,6 +42,7 @@ export async function listReports(req: Request, res: Response, next: NextFunctio
   }
 }
 
+/** GET `/iva-reports/period/:year/:month` — vista del período con previsualización en vivo. */
 export async function getPeriod(req: Request, res: Response, next: NextFunction) {
   try {
     const { year, month } = periodParamsSchema.parse(req.params);
@@ -46,6 +52,7 @@ export async function getPeriod(req: Request, res: Response, next: NextFunction)
   }
 }
 
+/** GET `/iva-reports/:id` — detalle de un libro con líneas y cuadre. */
 export async function getReport(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await fiscalService.getReportDetail(req.params.id as string));
@@ -54,6 +61,7 @@ export async function getReport(req: Request, res: Response, next: NextFunction)
   }
 }
 
+/** POST `/iva-reports/generate` — genera o actualiza borrador de libro IVA. */
 export async function generate(req: Request, res: Response, next: NextFunction) {
   try {
     const body = generateSchema.parse(req.body);
@@ -63,6 +71,7 @@ export async function generate(req: Request, res: Response, next: NextFunction) 
   }
 }
 
+/** POST `/iva-reports/:id/close` — cierra libro tras verificar cuadre. */
 export async function close(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await fiscalService.close(req.params.id as string));
@@ -71,6 +80,7 @@ export async function close(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** GET `/iva-reports/:id/export` — descarga el libro en Excel. */
 export async function exportExcel(req: Request, res: Response, next: NextFunction) {
   try {
     const { buffer, filename } = await fiscalService.exportExcel(req.params.id as string);
@@ -85,6 +95,7 @@ export async function exportExcel(req: Request, res: Response, next: NextFunctio
   }
 }
 
+/** GET `/dte` — lista DTE emitidos (sin payload completo). */
 export async function listDte(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await fiscalService.listDte(dteQuerySchema.parse(req.query)));

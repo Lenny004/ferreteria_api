@@ -1,6 +1,10 @@
+/**
+ * Catálogos de RRHH: departamentos y cargos (`hr.Departments`, `hr.Positions`).
+ */
 import { prisma } from "../../lib/prisma.js";
 
 export const catalogsService = {
+  /** Lista departamentos activos con cargos activos anidados. */
   async listDepartments() {
     return prisma.department.findMany({
       where: { isActive: true },
@@ -15,6 +19,7 @@ export const catalogsService = {
     });
   },
 
+  /** Lista cargos activos; filtra por `departmentId` si se proporciona. */
   async listPositions(departmentId?: string) {
     return prisma.position.findMany({
       where: {

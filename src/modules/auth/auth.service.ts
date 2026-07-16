@@ -1,3 +1,7 @@
+/**
+ * Autenticación del panel administrativo (`WebUser`).
+ * Login, perfil, cambio y recuperación de contraseña.
+ */
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import { prisma } from "../../lib/prisma.js";
@@ -21,6 +25,7 @@ const webUserPublicSelect = {
 } as const;
 
 export const authService = {
+  /** Valida credenciales por email/username; emite JWT y actualiza `lastLoginAt`. */
   async login(login: string, password: string) {
     const user = await prisma.webUser.findFirst({
       where: {
@@ -58,6 +63,7 @@ export const authService = {
     };
   },
 
+  /** Devuelve perfil público del WebUser activo o lanza 401. */
   async me(userId: string) {
     const user = await prisma.webUser.findUnique({
       where: { id: userId },
@@ -71,6 +77,7 @@ export const authService = {
     return user;
   },
 
+  /** Verifica contraseña actual y persiste hash bcrypt (cost 10) de la nueva. */
   async changePassword(userId: string, currentPassword: string, newPassword: string) {
     const user = await prisma.webUser.findUnique({ where: { id: userId } });
     if (!user || !user.isActive) {
@@ -95,6 +102,10 @@ export const authService = {
     return { changed: true };
   },
 
+  /**
+   * Genera token de reset (SHA-256 en BD, 1 h); invalida tokens previos del usuario.
+   * Respuesta genérica si el email no existe (no filtra cuentas). En dev expone `resetToken`.
+   */
   async forgotPassword(email: string) {
     const generic = {
       message:
@@ -143,6 +154,7 @@ export const authService = {
     return { ...generic, emailSent: sent };
   },
 
+  /** Aplica nueva contraseña si el token WEB_USER es válido, no usado y no expirado. */
   async resetPassword(token: string, newPassword: string) {
     if (newPassword.length < 8) {
       throw new BadRequestError("La nueva contraseña debe tener al menos 8 caracteres");

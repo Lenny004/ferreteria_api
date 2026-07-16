@@ -1,3 +1,9 @@
+/**
+ * Rutas de pedidos de tienda.
+ * - Cliente: `/api/v1/shop/orders` (autenticación SHOP)
+ * - Admin: `/api/v1/shop-orders` (ADMIN u OWNER)
+ */
+
 import { Router } from "express";
 import { authenticate } from "../../middleware/authenticate.js";
 import { authenticateShop } from "../../middleware/authenticate-shop.js";

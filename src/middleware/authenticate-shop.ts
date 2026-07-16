@@ -1,7 +1,11 @@
+/**
+ * Middleware de autenticación JWT para clientes de la tienda en línea.
+ * Exige role SHOP; rechaza tokens del panel administrativo.
+ */
 import type { Request, Response, NextFunction } from "express";
 import { verifyAccessToken } from "../shared/jwt.js";
 
-/** Exige JWT de cliente de tienda (role SHOP). */
+/** Valida Bearer JWT con role SHOP y adjunta `req.user`; 401/403 según el caso. */
 export function authenticateShop(req: Request, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
 

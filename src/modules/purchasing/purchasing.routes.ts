@@ -1,3 +1,7 @@
+/**
+ * Rutas de compras: proveedores (`/api/v1/suppliers`) y órdenes (`/api/v1/purchase-orders`).
+ */
+
 import { Router } from "express";
 import { authenticate } from "../../middleware/authenticate.js";
 import { requireRole } from "../../middleware/require-role.js";
