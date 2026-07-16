@@ -11,13 +11,27 @@ const publicProductSelect = {
   id: true,
   code: true,
   description: true,
+  shortDescription: true,
+  brand: true,
+  imageUrl: true,
   salePrice: true,
   currentStock: true,
   familyId: true,
   subfamilyId: true,
-  family: { select: { id: true, code: true, name: true } },
-  subfamily: { select: { id: true, name: true } },
+  family: { select: { id: true, code: true, name: true, slug: true, iconKey: true, imageUrl: true } },
+  subfamily: { select: { id: true, name: true, slug: true } },
   measurementType: { select: { id: true, code: true, name: true, unitLabel: true } },
+} as const;
+
+const publicFamilySelect = {
+  id: true,
+  code: true,
+  name: true,
+  description: true,
+  slug: true,
+  iconKey: true,
+  imageUrl: true,
+  sortOrder: true,
 } as const;
 
 /** Parámetros de búsqueda y paginación del listado público de productos. */
@@ -34,13 +48,18 @@ export type PublicCatalogListParams = {
 };
 
 export const publicCatalogService = {
-  /** Lista familias activas ordenadas por nombre. */
+  /** Lista familias activas ordenadas por sortOrder y nombre. */
   async listFamilies() {
     return prisma.family.findMany({
       where: { isActive: true },
-      select: { id: true, code: true, name: true, description: true },
-      orderBy: { name: "asc" },
+      select: publicFamilySelect,
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     });
+  },
+
+  /** Alias de `listFamilies` para sidenav de tienda (departamentos). */
+  async listDepartments() {
+    return this.listFamilies();
   },
 
   /** Lista subfamilias activas; opcionalmente filtradas por familia. */
@@ -50,17 +69,17 @@ export const publicCatalogService = {
         isActive: true,
         ...(familyId ? { familyId } : {}),
       },
-      select: { id: true, familyId: true, code: true, name: true },
-      orderBy: { name: "asc" },
+      select: { id: true, familyId: true, code: true, name: true, slug: true, sortOrder: true },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     });
   },
 
   /**
-   * Lista productos activos con filtros de texto, categoría, precio y disponibilidad.
+   * Lista productos activos y visibles en web con filtros de texto, categoría, precio y disponibilidad.
    * `inStock: true` exige `currentStock > 0`.
    */
   async listProducts(params: PublicCatalogListParams) {
-    const where: Prisma.ProductWhereInput = { isActive: true };
+    const where: Prisma.ProductWhereInput = { isActive: true, isWebVisible: true };
     if (params.q) {
       where.OR = [
         { code: { contains: params.q, mode: "insensitive" } },
@@ -109,10 +128,10 @@ export const publicCatalogService = {
     return { items, total, take, skip };
   },
 
-  /** Detalle de un producto activo por ID. */
+  /** Detalle de un producto activo y visible en web por ID. */
   async getProduct(id: string) {
     const product = await prisma.product.findFirst({
-      where: { id, isActive: true },
+      where: { id, isActive: true, isWebVisible: true },
       select: publicProductSelect,
     });
     if (!product) throw new NotFoundError("Producto no encontrado");

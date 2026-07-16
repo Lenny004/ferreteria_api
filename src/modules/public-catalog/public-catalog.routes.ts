@@ -9,6 +9,7 @@ import * as controller from "./public-catalog.controller.js";
 const router = Router();
 
 router.get("/families", controller.listFamilies);
+router.get("/departments", controller.listDepartments);
 router.get("/subfamilies", controller.listSubfamilies);
 router.get("/products", controller.listProducts);
 router.get("/products/:id", controller.getProduct);

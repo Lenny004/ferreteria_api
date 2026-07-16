@@ -7,9 +7,25 @@ import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
 import { shopOrdersService } from "./shop-orders.service.js";
 
-const checkoutSchema = z.object({
-  customerNotes: z.string().max(2000).nullable().optional(),
-});
+const checkoutSchema = z
+  .object({
+    customerNotes: z.string().max(2000).nullable().optional(),
+    deliveryType: z.enum(["RETIRO_TIENDA", "ENVIO"]).optional(),
+    shippingAddress: z.string().max(500).optional(),
+    paymentMethod: z
+      .enum(["EFECTIVO_RETIRO", "TRANSFERENCIA", "TARJETA", "CONTRA_ENTREGA"])
+      .optional(),
+  })
+  .superRefine((data, ctx) => {
+    const deliveryType = data.deliveryType ?? "RETIRO_TIENDA";
+    if (deliveryType === "ENVIO" && !data.shippingAddress?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "shippingAddress es requerido cuando deliveryType es ENVIO",
+        path: ["shippingAddress"],
+      });
+    }
+  });
 
 const adminListSchema = z.object({
   status: z
@@ -33,7 +49,7 @@ export async function checkout(req: Request, res: Response, next: NextFunction) 
     const body = checkoutSchema.parse(req.body ?? {});
     jsonSuccess(
       res,
-      await shopOrdersService.checkout(req.user!.userId, body.customerNotes),
+      await shopOrdersService.checkout(req.user!.userId, body),
       201,
     );
   } catch (err) {

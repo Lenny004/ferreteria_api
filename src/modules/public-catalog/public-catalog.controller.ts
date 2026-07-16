@@ -31,6 +31,15 @@ export async function listFamilies(_req: Request, res: Response, next: NextFunct
   }
 }
 
+/** GET `/departments` — alias de familias enriquecidas (sidenav tienda). */
+export async function listDepartments(_req: Request, res: Response, next: NextFunction) {
+  try {
+    jsonSuccess(res, await publicCatalogService.listDepartments());
+  } catch (err) {
+    next(err);
+  }
+}
+
 /** GET `/subfamilies` — subfamilias activas (filtro opcional `familyId`). */
 export async function listSubfamilies(req: Request, res: Response, next: NextFunction) {
   try {
