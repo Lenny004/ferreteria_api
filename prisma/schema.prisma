@@ -51,8 +51,9 @@ model Family {
   createdAt   DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt   DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  subfamilies Subfamily[]
-  products    Product[]
+  subfamilies     Subfamily[]
+  products        Product[]
+  volumeDiscounts VolumeDiscount[]
 
   @@index([sortOrder], map: "IdxFamiliesSortOrder")
   @@map("Families")
@@ -72,7 +73,7 @@ model Subfamily {
   createdAt   DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt   DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  family   Family    @relation(fields: [familyId], references: [id])
+  family   Family    @relation(fields: [familyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Subfamilies_FamilyId_fkey")
   products Product[]
 
   @@unique([familyId, code])
@@ -121,6 +122,7 @@ model Product {
   familyId          String   @map("FamilyId") @db.Uuid
   subfamilyId       String?  @map("SubfamilyId") @db.Uuid
   measurementTypeId String   @map("MeasurementTypeId") @db.Uuid
+  supplierId        String?  @map("SupplierId") @db.Uuid
   /// Precio de venta vigente
   salePrice         Decimal  @default(0) @map("SalePrice") @db.Decimal(12, 2)
   /// Costo promedio ponderado — actualizado automáticamente al recibir compras
@@ -133,14 +135,16 @@ model Product {
   reorderPoint      Decimal? @map("ReorderPoint") @db.Decimal(12, 3)
   /// Visible en catálogo web (puede seguir vendiéndose en POS)
   isWebVisible      Boolean  @default(true) @map("IsWebVisible")
+  rotationClass     String?  @map("RotationClass") @db.VarChar(10)
   isActive          Boolean  @default(true) @map("IsActive")
   notes             String?  @db.Text
   createdAt         DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt         DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  family               Family              @relation(fields: [familyId], references: [id])
-  subfamily            Subfamily?          @relation(fields: [subfamilyId], references: [id])
-  measurementType      MeasurementType     @relation(fields: [measurementTypeId], references: [id])
+  family               Family                @relation(fields: [familyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Products_FamilyId_fkey")
+  subfamily            Subfamily?            @relation(fields: [subfamilyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Products_SubfamilyId_fkey")
+  measurementType      MeasurementType       @relation(fields: [measurementTypeId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Products_MeasurementTypeId_fkey")
+  supplier             Supplier?             @relation(fields: [supplierId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Products_SupplierId_fkey")
   orderDetails         OrderDetail[]
   inventoryMovements   InventoryMovement[]
   purchaseOrderDetails PurchaseOrderDetail[]
@@ -148,17 +152,80 @@ model Product {
   favorites            ProductFavorite[]
   cartItems            ShopCartItem[]
   shopOrderLines       ShopOrderLine[]
+  saleUnits            ProductSaleUnit[]
+  volumeDiscounts      VolumeDiscount[]
 
   @@index([familyId], map: "IdxProductsFamily")
   @@index([subfamilyId], map: "IdxProductsSubfamily")
   @@index([isWebVisible], map: "IdxProductsWebVisible")
+  @@index([isActive], map: "IdxProductsActive")
+  @@index([supplierId], map: "IdxProductsSupplier")
   @@map("Products")
+  @@schema("public")
+}
+
+/// Unidad comercial para vender un producto por paquete, docena o caja.
+model SaleUnit {
+  id           String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code         String            @unique @db.VarChar(20)
+  name         String            @db.VarChar(50)
+  abbreviation String            @map("Abbreviation") @db.VarChar(10)
+  isActive     Boolean           @default(true) @map("IsActive")
+  createdAt    DateTime          @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt    DateTime          @default(now()) @map("UpdatedAt") @db.Timestamptz
+  products     ProductSaleUnit[]
+  orderDetails OrderDetail[]
+
+  @@map("SaleUnits")
+  @@schema("public")
+}
+
+/// Presentación de venta que convierte la cantidad comercial a unidades base.
+model ProductSaleUnit {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId       String   @map("ProductId") @db.Uuid
+  saleUnitId      String   @map("SaleUnitId") @db.Uuid
+  unitsPerPackage Decimal  @default(1) @map("UnitsPerPackage") @db.Decimal(12, 3)
+  salePrice       Decimal  @default(0) @map("SalePrice") @db.Decimal(12, 2)
+  barcode         String?  @db.VarChar(50)
+  isDefault       Boolean  @default(false) @map("IsDefault")
+  isActive        Boolean  @default(true) @map("IsActive")
+  createdAt       DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
+  product         Product  @relation(fields: [productId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "ProductSaleUnits_ProductId_fkey")
+  saleUnit        SaleUnit @relation(fields: [saleUnitId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "ProductSaleUnits_SaleUnitId_fkey")
+
+  @@unique([productId, saleUnitId])
+  @@index([productId], map: "IdxProductSaleUnitsProduct")
+  @@map("ProductSaleUnits")
+  @@schema("public")
+}
+
+/// Regla de descuento por volumen aplicable a producto o familia.
+model VolumeDiscount {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId       String?   @map("ProductId") @db.Uuid
+  familyId        String?   @map("FamilyId") @db.Uuid
+  minQuantity     Decimal   @map("MinQuantity") @db.Decimal(12, 3)
+  discountPercent Decimal?  @map("DiscountPercent") @db.Decimal(5, 2)
+  fixedUnitPrice  Decimal?  @map("FixedUnitPrice") @db.Decimal(12, 2)
+  startDate       DateTime? @map("StartDate") @db.Date
+  endDate         DateTime? @map("EndDate") @db.Date
+  isActive        Boolean   @default(true) @map("IsActive")
+  createdAt       DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+  product         Product?  @relation(fields: [productId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "VolumeDiscounts_ProductId_fkey")
+  family          Family?   @relation(fields: [familyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "VolumeDiscounts_FamilyId_fkey")
+
+  @@index([productId], map: "IdxVolumeDiscountsProduct")
+  @@index([familyId], map: "IdxVolumeDiscountsFamily")
+  @@map("VolumeDiscounts")
   @@schema("public")
 }
 
 /// Alerta de Stock — aviso cuando la existencia cae bajo el mínimo del Producto.
 model StockAlert {
-  id           String    @id @default(dbgenerated("gen_random_uuid()")) @map("Id") @db.Uuid
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   productId    String    @map("ProductId") @db.Uuid
   currentStock Decimal   @map("CurrentStock") @db.Decimal(12, 3)
   minStock     Decimal   @map("MinStock") @db.Decimal(12, 3)
@@ -167,7 +234,7 @@ model StockAlert {
   resolvedAt   DateTime? @map("ResolvedAt") @db.Timestamptz
   createdAt    DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
 
-  product Product @relation(fields: [productId], references: [id])
+  product Product @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "StockAlerts_ProductId_fkey")
 
   @@index([productId], map: "IdxStockAlertsProduct")
   @@map("StockAlerts")
@@ -180,26 +247,27 @@ model StockAlert {
 
 /// Proveedor — tercero de compras (nacional o importación).
 model Supplier {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name        String   @db.VarChar(200)
-  tradeName   String?  @map("TradeName") @db.VarChar(200)
-  nit         String?  @unique @map("Nit") @db.VarChar(20)
-  nrc         String?  @unique @map("Nrc") @db.VarChar(20)
-  contactName String?  @map("ContactName") @db.VarChar(150)
-  phone       String?  @db.VarChar(20)
-  email       String?  @db.VarChar(100)
-  address     String?  @db.VarChar(300)
-  municipality String? @db.VarChar(100)
-  department  String?  @db.VarChar(50)
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String   @db.VarChar(200)
+  tradeName    String?  @map("TradeName") @db.VarChar(200)
+  nit          String?  @unique @map("Nit") @db.VarChar(20)
+  nrc          String?  @unique @map("Nrc") @db.VarChar(20)
+  contactName  String?  @map("ContactName") @db.VarChar(150)
+  phone        String?  @db.VarChar(20)
+  email        String?  @db.VarChar(100)
+  address      String?  @db.VarChar(300)
+  municipality String?  @db.VarChar(100)
+  department   String?  @db.VarChar(50)
   /// SV = nacional, otro código ISO = importación
-  country     String   @default("SV") @db.VarChar(5)
-  creditDays  Int      @default(0) @map("CreditDays")
-  isActive    Boolean  @default(true) @map("IsActive")
-  notes       String?  @db.Text
-  createdAt   DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
-  updatedAt   DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
+  country      String   @default("SV") @db.VarChar(5)
+  creditDays   Int      @default(0) @map("CreditDays")
+  isActive     Boolean  @default(true) @map("IsActive")
+  notes        String?  @db.Text
+  createdAt    DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
 
   purchaseOrders PurchaseOrder[]
+  products       Product[]
 
   @@index([nit], map: "IdxSuppliersNit")
   @@map("Suppliers")
@@ -227,7 +295,8 @@ model PurchaseOrder {
   createdAt         DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt         DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  supplier           Supplier              @relation(fields: [supplierId], references: [id])
+  employee           Employee              @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKPurchaseOrdersEmployee")
+  supplier           Supplier              @relation(fields: [supplierId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "PurchaseOrders_SupplierId_fkey")
   details            PurchaseOrderDetail[]
   inventoryMovements InventoryMovement[]
 
@@ -250,8 +319,8 @@ model PurchaseOrderDetail {
   total           Decimal @db.Decimal(12, 2)
   notes           String? @db.VarChar(300)
 
-  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
-  product       Product       @relation(fields: [productId], references: [id])
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "PurchaseOrderDetails_PurchaseOrderId_fkey")
+  product       Product       @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "PurchaseOrderDetails_ProductId_fkey")
 
   @@index([purchaseOrderId], map: "IdxPODetailsOrder")
   @@index([productId], map: "IdxPODetailsProduct")
@@ -283,7 +352,7 @@ model CashSession {
   createdAt             DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt             DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  employee Employee  @relation(fields: [employeeId], references: [id])
+  employee Employee  @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKCashSessionsEmployee")
   orders   Order[]
   payments Payment[]
 
@@ -306,22 +375,24 @@ model Order {
   /// VENTA_CAJA = mostrador | ORDEN_CONFECCION = taller
   orderType       String   @default("VENTA_CAJA") @map("OrderType") @db.VarChar(20)
   /// Clave de idempotencia desde el cliente WPF (evita ventas duplicadas)
-  clientRequestId String   @unique @default(dbgenerated("gen_random_uuid()")) @map("ClientRequestId") @db.Uuid
+  clientRequestId String   @unique(map: "IdxOrdersClientRequest") @default(dbgenerated("gen_random_uuid()")) @map("ClientRequestId") @db.Uuid
   /// PENDIENTE | COMPLETADA | CANCELADA
   status          String   @default("PENDIENTE") @db.VarChar(20)
   subtotal        Decimal  @default(0) @db.Decimal(12, 2)
   taxAmount       Decimal  @default(0) @map("TaxAmount") @db.Decimal(12, 2)
   total           Decimal  @default(0) @db.Decimal(12, 2)
+  discountAmount  Decimal  @default(0) @map("DiscountAmount") @db.Decimal(12, 2)
   notes           String?  @db.Text
   createdAt       DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt       DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  employee    Employee     @relation(fields: [employeeId], references: [id])
-  cashSession CashSession? @relation(fields: [cashSessionId], references: [id])
-  customer    Customer?    @relation(fields: [customerId], references: [id])
+  employee    Employee      @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKOrdersEmployee")
+  cashSession CashSession?  @relation(fields: [cashSessionId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Orders_CashSessionId_fkey")
+  customer    Customer?     @relation(fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Orders_CustomerId_fkey")
   details     OrderDetail[]
   payments    Payment[]
   dteIssued   DteIssued[]
+  inventoryMovements InventoryMovement[]
 
   @@index([employeeId], map: "IdxOrdersEmployee")
   @@index([cashSessionId], map: "IdxOrdersCashSession")
@@ -333,18 +404,23 @@ model Order {
 
 /// Detalle de Orden — línea de producto vendido dentro de una Orden.
 model OrderDetail {
-  id        String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orderId   String  @map("OrderId") @db.Uuid
-  productId String  @map("ProductId") @db.Uuid
-  quantity  Decimal @db.Decimal(12, 3)
-  unitPrice Decimal @map("UnitPrice") @db.Decimal(12, 2)
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId         String   @map("OrderId") @db.Uuid
+  productId       String   @map("ProductId") @db.Uuid
+  saleUnitId      String?  @map("SaleUnitId") @db.Uuid
+  quantity        Decimal  @db.Decimal(12, 3)
+  unitsPerPackage Decimal  @default(1) @map("UnitsPerPackage") @db.Decimal(12, 3)
+  unitPrice       Decimal  @map("UnitPrice") @db.Decimal(12, 2)
   /// Costo congelado al momento de la venta para cálculo de margen
-  unitCost  Decimal @default(0) @map("UnitCost") @db.Decimal(12, 4)
-  subtotal  Decimal @db.Decimal(12, 2)
-  notes     String? @db.VarChar(300)
+  unitCost        Decimal  @default(0) @map("UnitCost") @db.Decimal(12, 4)
+  subtotal        Decimal  @db.Decimal(12, 2)
+  discountAmount  Decimal  @default(0) @map("DiscountAmount") @db.Decimal(12, 2)
+  createdAt       DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+  notes           String?  @db.VarChar(300)
 
-  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id])
+  order    Order     @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "OrderDetails_OrderId_fkey")
+  product  Product   @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "OrderDetails_ProductId_fkey")
+  saleUnit SaleUnit? @relation(fields: [saleUnitId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "OrderDetails_SaleUnitId_fkey")
 
   @@index([orderId], map: "IdxOrderDetailsOrder")
   @@index([productId], map: "IdxOrderDetailsProduct")
@@ -363,8 +439,8 @@ model Payment {
   reference     String?  @db.VarChar(100)
   createdAt     DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
 
-  order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  cashSession CashSession? @relation(fields: [cashSessionId], references: [id])
+  order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "Payments_OrderId_fkey")
+  cashSession CashSession? @relation(fields: [cashSessionId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Payments_CashSessionId_fkey")
 
   @@index([orderId], map: "IdxPaymentsOrder")
   @@index([cashSessionId], map: "IdxPaymentsSession")
@@ -376,7 +452,7 @@ model Payment {
 model InventoryMovement {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   productId       String   @map("ProductId") @db.Uuid
-  /// VENTA | DEVOLUCION_VENTA | ENTRADA_COMPRA | AJUSTE_ENTRADA | AJUSTE_SALIDA
+  /// ENTRADA_COMPRA | ENTRADA_DEVOLUCION | SALIDA_VENTA | AJUSTE_ENTRADA | AJUSTE_SALIDA
   movementType    String   @map("MovementType") @db.VarChar(30)
   /// Positivo = entrada, negativo = salida
   quantity        Decimal  @db.Decimal(12, 3)
@@ -391,8 +467,10 @@ model InventoryMovement {
   reason          String?  @db.VarChar(300)
   createdAt       DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
 
-  product       Product        @relation(fields: [productId], references: [id])
-  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  employee      Employee?      @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKInventoryMovementsEmployee")
+  order         Order?         @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKInventoryMovementsOrder")
+  product       Product        @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "InventoryMovements_ProductId_fkey")
+  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKInventoryMovementsPurchaseOrder")
 
   @@index([productId, createdAt], map: "IdxInvMovProductDate")
   @@index([movementType], map: "IdxInvMovType")
@@ -457,8 +535,8 @@ model DteIssued {
   processedAt    DateTime? @map("ProcessedAt") @db.Timestamptz
   createdAt      DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
 
-  order       Order?          @relation(fields: [orderId], references: [id])
-  relatedDte  DteIssued?      @relation("DteRelation", fields: [relatedDteId], references: [id])
+  order       Order?          @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "DteIssued_OrderId_fkey")
+  relatedDte  DteIssued?      @relation("DteRelation", fields: [relatedDteId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "DteIssued_RelatedDteId_fkey")
   creditNotes DteIssued[]     @relation("DteRelation")
   contingency DteContingency?
 
@@ -481,7 +559,7 @@ model DteContingency {
   createdAt    DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt    DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  dte DteIssued @relation(fields: [dteId], references: [id])
+  dte DteIssued @relation(fields: [dteId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "DteContingency_DteId_fkey")
 
   @@index([nextRetryAt], map: "IdxContingencyRetry")
   @@map("DteContingency")
@@ -530,7 +608,7 @@ model Department {
   createdAt   DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt   DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  parent    Department?  @relation("DepartmentHierarchy", fields: [parentId], references: [id])
+  parent    Department?  @relation("DepartmentHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Departments_ParentId_fkey")
   children  Department[] @relation("DepartmentHierarchy")
   positions Position[]
   employees Employee[]
@@ -550,7 +628,7 @@ model Position {
   createdAt    DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt    DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  department Department @relation(fields: [departmentId], references: [id])
+  department Department @relation(fields: [departmentId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Positions_DepartmentId_fkey")
   employees  Employee[]
 
   @@unique([departmentId, name])
@@ -608,7 +686,7 @@ model Employee {
   directSupervisorId    String?   @map("DirectSupervisorId") @db.Uuid
   // Contrato
   hireDate              DateTime  @map("HireDate") @db.Date
-  baseSalary            Decimal   @map("BaseSalary") @db.Decimal(10, 2)
+  baseSalary            Decimal   @default(0) @map("BaseSalary") @db.Decimal(10, 2)
   /// TIEMPO_PARCIAL | PLAZO_FIJO | HONORARIOS | PASANTE
   contractType          String    @default("PLAZO_FIJO") @map("ContractType") @db.VarChar(20)
   /// MENSUAL | QUINCENAL | SEMANAL
@@ -627,13 +705,13 @@ model Employee {
   /// SOLTERO | CASADO | UNION_DE_HECHO | DIVORCIADO | VIUDO
   maritalStatus         String?   @map("MaritalStatus") @db.VarChar(20)
   /// SIN_ESTUDIOS | BASICO | BACHILLER | SUPERIORES
-  academicLevel         String?   @map("AcademicLevel") @db.VarChar(20)
+  academicLevel         String?   @map("AcademicLevel") @db.VarChar(50)
   departmentSv          String?   @map("DepartmentSv") @db.VarChar(30)
   dependentsDescription String?   @map("DependentsDescription") @db.Text
   // Contacto
   phone                 String?   @db.VarChar(20)
   email                 String?   @db.VarChar(100)
-  address               String?   @db.VarChar(300)
+  address               String?
   // Previsión social
   afpInstitution        String?   @map("AfpInstitution") @db.VarChar(20)
   afpEnrollmentDate     DateTime? @map("AfpEnrollmentDate") @db.Date
@@ -662,22 +740,25 @@ model Employee {
   createdAt             DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt             DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  position     Position?   @relation(fields: [positionId], references: [id])
-  department   Department? @relation(fields: [departmentId], references: [id])
-  supervisor   Employee?   @relation("EmployeeSupervisor", fields: [directSupervisorId], references: [id])
+  position     Position?   @relation(fields: [positionId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Employees_PositionId_fkey")
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Employees_DepartmentId_fkey")
+  supervisor   Employee?   @relation("EmployeeSupervisor", fields: [directSupervisorId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Employees_DirectSupervisorId_fkey")
   subordinates Employee[]  @relation("EmployeeSupervisor")
 
-  cashSessions         CashSession[]
-  orders               Order[]
-  bankAccounts         EmployeeBankAccount[]
-  documents            EmployeeDocument[]
-  salaryHistory        SalaryHistory[]
-  healthRecords        HealthConditionRecord[]
-  payrollDetails       PayrollDetail[]
-  aguinaldoDetails     AguinaldoDetail[]
-  termination          EmployeeTermination?
-  leaveRequests        LeaveRequest[]
-  vacationBalances     VacationBalance[]
+  cashSessions       CashSession[]
+  orders             Order[]
+  inventoryMovements InventoryMovement[]
+  purchaseOrders     PurchaseOrder[]
+  webUsers            WebUser[]
+  bankAccounts     EmployeeBankAccount[]
+  documents        EmployeeDocument[]
+  salaryHistory    SalaryHistory[]
+  healthRecords    HealthConditionRecord[]
+  payrollDetails   PayrollDetail[]
+  aguinaldoDetails AguinaldoDetail[]
+  termination      EmployeeTermination?
+  leaveRequests    LeaveRequest[]
+  vacationBalances VacationBalance[]
 
   @@index([departmentId], map: "IdxEmployeesDepartment")
   @@index([directSupervisorId], map: "IdxEmployeesSupervisor")
@@ -700,7 +781,7 @@ model EmployeeBankAccount {
   createdAt     DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt     DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  employee       Employee        @relation(fields: [employeeId], references: [id])
+  employee       Employee        @relation(fields: [employeeId], references: [id], map: "EmployeeBankAccounts_EmployeeId_fkey")
   bank           Bank            @relation(fields: [bankId], references: [id])
   payrollDetails PayrollDetail[]
 
@@ -721,7 +802,7 @@ model SalaryHistory {
   isActive        Boolean  @default(true) @map("IsActive")
   createdAt       DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
 
-  employee Employee @relation(fields: [employeeId], references: [id])
+  employee Employee @relation(fields: [employeeId], references: [id], map: "SalaryHistory_EmployeeId_fkey")
 
   @@index([employeeId], map: "IdxSalaryHistoryEmployee")
   @@map("SalaryHistory")
@@ -746,8 +827,8 @@ model EmployeeDocument {
   verifiedBy String?   @map("VerifiedBy") @db.Uuid
   verifiedAt DateTime? @map("VerifiedAt") @db.Timestamptz
 
-  docType  RequiredDocumentType @relation(fields: [docTypeId], references: [id])
-  employee Employee             @relation(fields: [employeeId], references: [id])
+  docType  RequiredDocumentType @relation(fields: [docTypeId], references: [id], map: "EmployeeDocuments_DocTypeId_fkey")
+  employee Employee             @relation(fields: [employeeId], references: [id], map: "EmployeeDocuments_EmployeeId_fkey")
 
   @@index([employeeId], map: "IdxEmployeeDocumentsEmployee")
   @@index([status], map: "IdxEmployeeDocumentsStatus")
@@ -770,7 +851,7 @@ model HealthConditionRecord {
   createdAt             DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt             DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  employee Employee @relation(fields: [employeeId], references: [id])
+  employee Employee @relation(fields: [employeeId], references: [id], map: "HealthConditionRecords_EmployeeId_fkey")
 
   @@index([employeeId], map: "IdxHealthConditionsEmployee")
   @@map("HealthConditionRecords")
@@ -930,11 +1011,11 @@ model PayrollDetail {
   createdAt              DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt              DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  payrollRun     PayrollRun            @relation(fields: [payrollRunId], references: [id])
-  employee       Employee              @relation(fields: [employeeId], references: [id])
-  period         PayrollPeriod         @relation(fields: [periodId], references: [id])
-  bankAccount    EmployeeBankAccount?  @relation(fields: [bankAccountId], references: [id])
-  termination    EmployeeTermination?  @relation(fields: [terminationId], references: [id])
+  payrollRun     PayrollRun             @relation(fields: [payrollRunId], references: [id])
+  employee       Employee               @relation(fields: [employeeId], references: [id])
+  period         PayrollPeriod          @relation(fields: [periodId], references: [id])
+  bankAccount    EmployeeBankAccount?   @relation(fields: [bankAccountId], references: [id])
+  termination    EmployeeTermination?   @relation(fields: [terminationId], references: [id])
   earningLines   PayrollEarningLine[]
   deductionLines PayrollDeductionLine[]
   leaveRequests  LeaveRequest[]
@@ -1050,7 +1131,7 @@ model EmployeeTermination {
   paidAt                DateTime? @map("PaidAt") @db.Timestamptz
   createdAt             DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
 
-  employee       Employee        @relation(fields: [employeeId], references: [id])
+  employee       Employee        @relation(fields: [employeeId], references: [id], map: "EmployeeTerminations_EmployeeId_fkey")
   payrollDetails PayrollDetail[]
 
   @@map("EmployeeTerminations")
@@ -1104,9 +1185,9 @@ model LeaveRequest {
   createdAt          DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt          DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  employee      Employee       @relation(fields: [employeeId], references: [id])
-  leaveType     LeaveType      @relation(fields: [leaveTypeId], references: [id])
-  payrollDetail PayrollDetail? @relation(fields: [payrollDetailId], references: [id])
+  employee      Employee       @relation(fields: [employeeId], references: [id], map: "LeaveRequests_EmployeeId_fkey")
+  leaveType     LeaveType      @relation(fields: [leaveTypeId], references: [id], map: "LeaveRequests_LeaveTypeId_fkey")
+  payrollDetail PayrollDetail? @relation(fields: [payrollDetailId], references: [id], map: "LeaveRequests_PayrollDetailId_fkey")
 
   @@index([employeeId], map: "IdxLeaveRequestsEmployee")
   @@index([status], map: "IdxLeaveRequestsStatus")
@@ -1206,6 +1287,8 @@ model WebUser {
   createdAt    DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt    DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
 
+  employee     Employee? @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "WebUsers_EmployeeId_fkey")
+
   @@map("WebUsers")
   @@schema("system")
 }
@@ -1224,9 +1307,9 @@ model ShopCustomer {
   createdAt             DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt             DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  favorites   ProductFavorite[]
-  cartItems   ShopCartItem[]
-  shopOrders  ShopOrder[]
+  favorites  ProductFavorite[]
+  cartItems  ShopCartItem[]
+  shopOrders ShopOrder[]
 
   @@map("ShopCustomers")
   @@schema("system")
@@ -1253,25 +1336,25 @@ model ShopCartItem {
 
 /// Pedido web B2C derivado del carrito.
 model ShopOrder {
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  shopCustomerId  String    @map("ShopCustomerId") @db.Uuid
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shopCustomerId  String   @map("ShopCustomerId") @db.Uuid
   /// PENDIENTE | CONFIRMADA | LISTA_RETIRO | ENTREGADA | CANCELADA
-  status          String    @default("PENDIENTE") @map("Status") @db.VarChar(20)
-  subtotal        Decimal   @map("Subtotal") @db.Decimal(12, 2)
-  taxAmount       Decimal   @default(0) @map("TaxAmount") @db.Decimal(12, 2)
-  total           Decimal   @map("Total") @db.Decimal(12, 2)
+  status          String   @default("PENDIENTE") @map("Status") @db.VarChar(20)
+  subtotal        Decimal  @map("Subtotal") @db.Decimal(12, 2)
+  taxAmount       Decimal  @default(0) @map("TaxAmount") @db.Decimal(12, 2)
+  total           Decimal  @map("Total") @db.Decimal(12, 2)
   /// RETIRO_TIENDA | ENVIO
-  deliveryType    String    @default("RETIRO_TIENDA") @map("DeliveryType") @db.VarChar(20)
+  deliveryType    String   @default("RETIRO_TIENDA") @map("DeliveryType") @db.VarChar(20)
   /// Dirección de envío (texto libre; null si retiro en tienda)
-  shippingAddress String?   @map("ShippingAddress") @db.VarChar(500)
+  shippingAddress String?  @map("ShippingAddress") @db.VarChar(500)
   /// PENDIENTE | PAGADO | REEMBOLSADO | FALLIDO
-  paymentStatus   String    @default("PENDIENTE") @map("PaymentStatus") @db.VarChar(20)
+  paymentStatus   String   @default("PENDIENTE") @map("PaymentStatus") @db.VarChar(20)
   /// EFECTIVO_RETIRO | TRANSFERENCIA | TARJETA | CONTRA_ENTREGA
-  paymentMethod   String?   @map("PaymentMethod") @db.VarChar(30)
-  customerNotes   String?   @map("CustomerNotes") @db.Text
-  adminNotes      String?   @map("AdminNotes") @db.Text
-  createdAt       DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
-  updatedAt       DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+  paymentMethod   String?  @map("PaymentMethod") @db.VarChar(30)
+  customerNotes   String?  @map("CustomerNotes") @db.Text
+  adminNotes      String?  @map("AdminNotes") @db.Text
+  createdAt       DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
 
   shopCustomer ShopCustomer    @relation(fields: [shopCustomerId], references: [id])
   lines        ShopOrderLine[]
@@ -1309,12 +1392,12 @@ model ShopPayment {
 }
 
 model ShopOrderLine {
-  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  shopOrderId String @map("ShopOrderId") @db.Uuid
-  productId  String  @map("ProductId") @db.Uuid
-  quantity   Decimal @map("Quantity") @db.Decimal(12, 3)
-  unitPrice  Decimal @map("UnitPrice") @db.Decimal(12, 2)
-  subtotal   Decimal @map("Subtotal") @db.Decimal(12, 2)
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shopOrderId String  @map("ShopOrderId") @db.Uuid
+  productId   String  @map("ProductId") @db.Uuid
+  quantity    Decimal @map("Quantity") @db.Decimal(12, 3)
+  unitPrice   Decimal @map("UnitPrice") @db.Decimal(12, 2)
+  subtotal    Decimal @map("Subtotal") @db.Decimal(12, 2)
 
   shopOrder ShopOrder @relation(fields: [shopOrderId], references: [id], onDelete: Cascade)
   product   Product   @relation(fields: [productId], references: [id])

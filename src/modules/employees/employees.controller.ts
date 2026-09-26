@@ -5,6 +5,7 @@ import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
 import { employeesService } from "./employees.service.js";
+import { parseUuidParam } from "../../shared/validation.js";
 
 const listQuerySchema = z.object({
   q: z.string().optional(),
@@ -61,7 +62,7 @@ export async function list(req: Request, res: Response, next: NextFunction) {
 /** GET `/:id` — Detalle de un empleado con cargo y departamento. */
 export async function getById(req: Request, res: Response, next: NextFunction) {
   try {
-    const employee = await employeesService.getById(req.params.id as string);
+  const employee = await employeesService.getById(parseUuidParam(req.params).id);
     jsonSuccess(res, employee);
   } catch (err) {
     next(err);
@@ -83,7 +84,7 @@ export async function create(req: Request, res: Response, next: NextFunction) {
 export async function update(req: Request, res: Response, next: NextFunction) {
   try {
     const body = updateSchema.parse(req.body);
-    const employee = await employeesService.update(req.params.id as string, body);
+  const employee = await employeesService.update(parseUuidParam(req.params).id, body);
     jsonSuccess(res, employee);
   } catch (err) {
     next(err);

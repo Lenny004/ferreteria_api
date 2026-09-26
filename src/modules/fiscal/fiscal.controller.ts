@@ -5,6 +5,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
+import { parseUuidParam } from "../../shared/validation.js";
 import { IVA_REPORT_TYPES, fiscalService } from "./fiscal.service.js";
 
 const listQuerySchema = z.object({
@@ -55,7 +56,7 @@ export async function getPeriod(req: Request, res: Response, next: NextFunction)
 /** GET `/iva-reports/:id` — detalle de un libro con líneas y cuadre. */
 export async function getReport(req: Request, res: Response, next: NextFunction) {
   try {
-    jsonSuccess(res, await fiscalService.getReportDetail(req.params.id as string));
+  jsonSuccess(res, await fiscalService.getReportDetail(parseUuidParam(req.params).id));
   } catch (err) {
     next(err);
   }
@@ -74,7 +75,7 @@ export async function generate(req: Request, res: Response, next: NextFunction) 
 /** POST `/iva-reports/:id/close` — cierra libro tras verificar cuadre. */
 export async function close(req: Request, res: Response, next: NextFunction) {
   try {
-    jsonSuccess(res, await fiscalService.close(req.params.id as string));
+  jsonSuccess(res, await fiscalService.close(parseUuidParam(req.params).id));
   } catch (err) {
     next(err);
   }
@@ -83,7 +84,7 @@ export async function close(req: Request, res: Response, next: NextFunction) {
 /** GET `/iva-reports/:id/export` — descarga el libro en Excel. */
 export async function exportExcel(req: Request, res: Response, next: NextFunction) {
   try {
-    const { buffer, filename } = await fiscalService.exportExcel(req.params.id as string);
+  const { buffer, filename } = await fiscalService.exportExcel(parseUuidParam(req.params).id);
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

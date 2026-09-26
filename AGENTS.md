@@ -59,16 +59,14 @@ Esta regla (`alwaysApply: true`) obliga a:
 
 ```
 src/
-├── routes/         # Definición de rutas Express
-├── controllers/    # Controladores HTTP (reciben req/res)
-├── services/       # Lógica de negocio
-├── repositories/   # Acceso a datos (Prisma)
-├── middlewares/    # Middlewares Express (auth, validation, error handling)
-├── validators/     # Esquemas Zod
-├── types/          # Tipos e interfaces TypeScript
-├── utils/          # Utilidades reutilizables
-└── server.ts       # Punto de entrada de la aplicación
+├── modules/<modulo>/ # routes, controller y service por módulo
+├── middleware/       # Middlewares Express
+├── shared/           # Errores, JWT, respuestas y validación común
+├── lib/              # Prisma y adaptadores externos
+└── server.ts         # Punto de entrada de la aplicación
 ```
+
+La estructura real mantiene routes, controllers y services juntos dentro de cada módulo (`<modulo>.<capa>.ts`); no se deben crear capas o carpetas paralelas fuera de `src/modules`, `src/middleware`, `src/shared` y `src/lib`.
 
 ## 📝 Ejemplo de Cumplimiento en PR
 

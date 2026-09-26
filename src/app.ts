@@ -4,7 +4,11 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
+import crypto from "node:crypto";
+import cookieParser from "cookie-parser";
+import { loadEnv } from "./config/env.js";
 import { errorHandler } from "./middleware/error-handler.js";
+import { rateLimit } from "express-rate-limit";
 import authRoutes from "./modules/auth/auth.routes.js";
 import employeesRoutes from "./modules/employees/employees.routes.js";
 import banksRoutes from "./modules/banks/banks.routes.js";
@@ -44,13 +48,15 @@ import {
   adminSettingsRouter,
 } from "./modules/settings/settings.routes.js";
 
+const env = loadEnv();
+
 function resolveCorsOrigins(): string[] {
-  const configured = (process.env.CORS_ORIGIN ?? "")
+  const configured = env.CORS_ORIGIN
     .split(",")
     .map((o) => o.trim())
     .filter(Boolean);
 
-  if (process.env.NODE_ENV === "production") {
+  if (env.NODE_ENV === "production") {
     return configured;
   }
 
@@ -63,22 +69,50 @@ function resolveCorsOrigins(): string[] {
   );
 }
 
+const apiRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: "RATE_LIMITED", message: "Demasiadas solicitudes. Intenta de nuevo en un minuto." },
+});
+
 const app = express();
 
 // Orden: proxy → seguridad (helmet) → CORS → body parser → rutas → error handler
 app.set("trust proxy", 1);
-app.use(helmet());
+app.use((req, res, next) => {
+  const requestId = req.header("X-Request-Id")?.trim() || crypto.randomUUID();
+  res.setHeader("X-Request-Id", requestId);
+  const startedAt = Date.now();
+  res.on("finish", () => console.log(JSON.stringify({ event: "http_request", requestId, method: req.method, path: req.path, status: res.statusCode, durationMs: Date.now() - startedAt })));
+  next();
+});
+app.use(helmet({
+  // API JSON: sin HTML propio, así que la CSP más restrictiva posible (sin directivas por defecto de helmet).
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"], baseUri: ["'none'"], formAction: ["'none'"] },
+  },
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  strictTransportSecurity: env.NODE_ENV === "production" ? undefined : false,
+}));
 app.use(
   cors({
     origin: resolveCorsOrigins(),
     credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token", "X-Request-Id"],
+    exposedHeaders: ["Content-Disposition", "X-Request-Id"],
   }),
 );
 app.use(express.json({ limit: "2mb" }));
+app.use(cookieParser());
 
 app.get("/health", (_req, res) => {
   res.json({ success: true, data: { status: "ok" } });
 });
+
+app.use("/api/v1", apiRateLimiter);
 
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/public/catalog", publicCatalogRoutes);

@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: ferreteria
+          POSTGRES_USER: ferreteria_user
+          POSTGRES_PASSWORD: throwaway_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U ferreteria_user -d ferreteria"
+          --health-interval=10s --health-timeout=5s --health-retries=5
+    env:
+      DATABASE_URL: postgresql://ferreteria_user:throwaway_only@127.0.0.1:5432/ferreteria
+      JWT_SECRET: ci-secret-ferreteria-32-caracteres-minimo
+      CORS_ORIGIN: http://localhost:3000
+      NODE_ENV: test
+      COOKIE_SECURE: "false"
+      COOKIE_SAMESITE: lax
+      EXPOSE_RESET_TOKEN_IN_DEV: "false"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run type-check
+      - run: npx prisma validate
+      - run: npx prisma migrate deploy
+      - run: npx prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --exit-code
+      - run: npm test -- --coverage
+      - run: npm run build
+      - run: npm audit --audit-level=high

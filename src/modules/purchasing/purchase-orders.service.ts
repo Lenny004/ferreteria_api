@@ -7,8 +7,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { BadRequestError, NotFoundError } from "../../shared/errors.js";
 
-const PO_STATUSES = ["BORRADOR", "CONFIRMADA", "RECIBIDA", "CANCELADA"] as const;
-export type PurchaseOrderStatus = (typeof PO_STATUSES)[number];
+export type PurchaseOrderStatus = "BORRADOR" | "CONFIRMADA" | "RECIBIDA" | "CANCELADA";
 
 const DEFAULT_TAX_RATE = 0.13;
 

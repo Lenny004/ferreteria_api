@@ -2,7 +2,10 @@
  * Punto de entrada HTTP: carga variables de entorno y arranca el listener.
  */
 import "dotenv/config";
-import app from "./app.js";
+import { loadEnv } from "./config/env.js";
+
+loadEnv();
+const { default: app } = await import("./app.js");
 
 const port = Number(process.env.PORT ?? 3001);
 

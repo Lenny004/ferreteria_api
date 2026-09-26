@@ -5,6 +5,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
+import { parseUuidParam } from "../../shared/validation.js";
 import { shopOrdersService } from "./shop-orders.service.js";
 
 const checkoutSchema = z
@@ -71,7 +72,7 @@ export async function getMine(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(
       res,
-      await shopOrdersService.getMine(req.user!.userId, req.params.id as string),
+      await shopOrdersService.getMine(req.user!.userId, parseUuidParam(req.params).id),
     );
   } catch (err) {
     next(err);
@@ -93,7 +94,7 @@ export async function updateAdmin(req: Request, res: Response, next: NextFunctio
     jsonSuccess(
       res,
       await shopOrdersService.updateAdmin(
-        req.params.id as string,
+        parseUuidParam(req.params).id,
         adminUpdateSchema.parse(req.body),
       ),
     );

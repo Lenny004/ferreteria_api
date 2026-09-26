@@ -8,6 +8,7 @@ import { prisma } from "../../lib/prisma.js";
 import { AppError, BadRequestError } from "../../shared/errors.js";
 import { signAccessToken } from "../../shared/jwt.js";
 import { buildPasswordResetEmail, sendMail } from "../../lib/mail.js";
+import { getEnv } from "../../config/env.js";
 
 function hashToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
@@ -142,16 +143,17 @@ export const authService = {
       audience: "WEB_USER",
       resetToken: rawToken,
     });
-    const { sent } = await sendMail({
+    await sendMail({
       to: user.email,
       subject: mail.subject,
       text: mail.text,
     });
 
-    if (process.env.NODE_ENV !== "production") {
-      return { ...generic, resetToken: rawToken, expiresAt, emailSent: sent };
+    const env = getEnv();
+    if (env.NODE_ENV !== "production" && env.EXPOSE_RESET_TOKEN_IN_DEV) {
+      return { ...generic, resetToken: rawToken, expiresAt };
     }
-    return { ...generic, emailSent: sent };
+    return generic;
   },
 
   /** Aplica nueva contraseña si el token WEB_USER es válido, no usado y no expirado. */
