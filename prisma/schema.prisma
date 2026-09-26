@@ -1,5 +1,5 @@
 // =============================================================================
-// FlexoCable SV — Prisma schema v3.0 (admin API / Node)
+// Ferreteria — Prisma schema v3.0 (admin API / Node)
 // Esquemas: public, purchasing, sales, dte, fiscal, hr, system
 // WPF caja usa EF Core sobre la misma base PostgreSQL/Supabase.
 // UUID gen_random_uuid() en todas las tablas de negocio.
@@ -19,11 +19,13 @@ datasource db {
 // SCHEMA: public — Catálogo maestro de productos
 // =============================================================================
 
+/// Tipo de Medida — unidad de conteo/venta del catálogo (pza, m, kg, etc.).
 model MeasurementType {
   id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   code      String @unique @db.VarChar(10)
   name      String @db.VarChar(50)
   unitLabel String @map("UnitLabel") @db.VarChar(20)
+  /// Decimales permitidos al capturar cantidades (0 = entero).
   decimals  Int    @default(0) @db.SmallInt
 
   products Product[]
@@ -32,6 +34,7 @@ model MeasurementType {
   @@schema("public")
 }
 
+/// Familia — categoría de primer nivel del catálogo de productos.
 model Family {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   code        String   @unique @db.VarChar(10)
@@ -48,6 +51,7 @@ model Family {
   @@schema("public")
 }
 
+/// Subfamilia — categoría de segundo nivel, siempre bajo una Familia.
 model Subfamily {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   familyId    String   @map("FamilyId") @db.Uuid
@@ -93,6 +97,7 @@ model Customer {
   @@schema("public")
 }
 
+/// Producto — ítem maestro del inventario y punto de venta.
 model Product {
   id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   code              String   @unique @db.VarChar(30)
@@ -105,7 +110,9 @@ model Product {
   salePrice         Decimal  @default(0) @map("SalePrice") @db.Decimal(12, 2)
   /// Costo promedio ponderado — actualizado automáticamente al recibir compras
   costPrice         Decimal  @default(0) @map("CostPrice") @db.Decimal(12, 4)
+  /// Existencia actual (desnormalizada; el Kardex es la fuente inmutable)
   currentStock      Decimal  @default(0) @map("CurrentStock") @db.Decimal(12, 3)
+  /// Umbral mínimo para generar Alerta de Stock
   minStock          Decimal  @default(0) @map("MinStock") @db.Decimal(12, 3)
   maxStock          Decimal? @map("MaxStock") @db.Decimal(12, 3)
   reorderPoint      Decimal? @map("ReorderPoint") @db.Decimal(12, 3)
@@ -121,6 +128,9 @@ model Product {
   inventoryMovements   InventoryMovement[]
   purchaseOrderDetails PurchaseOrderDetail[]
   stockAlerts          StockAlert[]
+  favorites            ProductFavorite[]
+  cartItems            ShopCartItem[]
+  shopOrderLines       ShopOrderLine[]
 
   @@index([familyId], map: "IdxProductsFamily")
   @@index([subfamilyId], map: "IdxProductsSubfamily")
@@ -128,11 +138,13 @@ model Product {
   @@schema("public")
 }
 
+/// Alerta de Stock — aviso cuando la existencia cae bajo el mínimo del Producto.
 model StockAlert {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @map("Id") @db.Uuid
   productId    String    @map("ProductId") @db.Uuid
   currentStock Decimal   @map("CurrentStock") @db.Decimal(12, 3)
   minStock     Decimal   @map("MinStock") @db.Decimal(12, 3)
+  /// true = alerta atendida (reposición o ajuste manual)
   isResolved   Boolean   @default(false) @map("IsResolved")
   resolvedAt   DateTime? @map("ResolvedAt") @db.Timestamptz
   createdAt    DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
@@ -148,6 +160,7 @@ model StockAlert {
 // SCHEMA: purchasing — Compras y Proveedores
 // =============================================================================
 
+/// Proveedor — tercero de compras (nacional o importación).
 model Supplier {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name        String   @db.VarChar(200)
@@ -175,6 +188,7 @@ model Supplier {
   @@schema("purchasing")
 }
 
+/// Orden de Compra — documento de compra a un Proveedor (ciclo BORRADOR→RECIBIDA).
 model PurchaseOrder {
   id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   supplierId        String    @map("SupplierId") @db.Uuid
@@ -205,12 +219,14 @@ model PurchaseOrder {
   @@schema("purchasing")
 }
 
+/// Detalle de Orden de Compra — línea de producto/cantidad/costo de una Orden de Compra.
 model PurchaseOrderDetail {
   id              String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   purchaseOrderId String  @map("PurchaseOrderId") @db.Uuid
   productId       String  @map("ProductId") @db.Uuid
   quantity        Decimal @db.Decimal(12, 3)
   unitCost        Decimal @map("UnitCost") @db.Decimal(12, 4)
+  /// Tasa IVA aplicada a la línea (por defecto 13% SV)
   taxRate         Decimal @default(0.13) @map("TaxRate") @db.Decimal(5, 4)
   subtotal        Decimal @db.Decimal(12, 2)
   total           Decimal @db.Decimal(12, 2)
@@ -229,6 +245,7 @@ model PurchaseOrderDetail {
 // SCHEMA: sales — Ventas, Caja e Inventario
 // =============================================================================
 
+/// Sesión de Caja — turno de apertura/cierre de un cajero en un punto de venta.
 model CashSession {
   id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employeeId            String    @map("EmployeeId") @db.Uuid
@@ -236,8 +253,11 @@ model CashSession {
   openedAt              DateTime  @default(now()) @map("OpenedAt") @db.Timestamptz
   closedAt              DateTime? @map("ClosedAt") @db.Timestamptz
   openingAmount         Decimal   @default(0) @map("OpeningAmount") @db.Decimal(12, 2)
+  /// Monto contado por el cajero al cerrar
   closingDeclaredAmount Decimal?  @map("ClosingDeclaredAmount") @db.Decimal(12, 2)
+  /// Monto esperado según ventas/pagos del sistema
   closingExpectedAmount Decimal?  @map("ClosingExpectedAmount") @db.Decimal(12, 2)
+  /// Diferencia = declarado − esperado (sobrante/faltante)
   difference            Decimal?  @db.Decimal(12, 2)
   /// ABIERTA | CERRADA | CANCELADA
   status                String    @default("ABIERTA") @db.VarChar(20)
@@ -258,6 +278,7 @@ model CashSession {
   @@schema("sales")
 }
 
+/// Orden (Venta) — ticket de venta en caja o orden de confección.
 model Order {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employeeId      String   @map("EmployeeId") @db.Uuid
@@ -266,7 +287,7 @@ model Order {
   customerId      String?  @map("CustomerId") @db.Uuid
   /// VENTA_CAJA = mostrador | ORDEN_CONFECCION = taller
   orderType       String   @default("VENTA_CAJA") @map("OrderType") @db.VarChar(20)
-  /// Clave de idempotencia desde el cliente WPF
+  /// Clave de idempotencia desde el cliente WPF (evita ventas duplicadas)
   clientRequestId String   @unique @default(dbgenerated("gen_random_uuid()")) @map("ClientRequestId") @db.Uuid
   /// PENDIENTE | COMPLETADA | CANCELADA
   status          String   @default("PENDIENTE") @db.VarChar(20)
@@ -292,6 +313,7 @@ model Order {
   @@schema("sales")
 }
 
+/// Detalle de Orden — línea de producto vendido dentro de una Orden.
 model OrderDetail {
   id        String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orderId   String  @map("OrderId") @db.Uuid
@@ -312,6 +334,7 @@ model OrderDetail {
   @@schema("sales")
 }
 
+/// Pago — abono o liquidación asociada a una Orden (puede haber varios métodos).
 model Payment {
   id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orderId       String   @map("OrderId") @db.Uuid
@@ -388,11 +411,13 @@ model DteConfig {
   @@schema("dte")
 }
 
+/// DTE Emitido — comprobante electrónico fiscal vinculado a una Orden (o NC).
 model DteIssued {
   id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orderId        String?   @map("OrderId") @db.Uuid
   /// 01=FAC CF | 03=CCF | 05=Nota Crédito | 06=Sujeto Excluido | 11=FAC Exportación
   dteType        String    @map("DteType") @db.VarChar(5)
+  /// Código de generación UUID exigido por MH
   generationCode String    @unique @default(dbgenerated("gen_random_uuid()")) @map("GenerationCode") @db.Uuid
   controlNumber  String    @unique @map("ControlNumber") @db.VarChar(40)
   /// PENDIENTE | PROCESADO | RECHAZADO | CONTINGENCIA
@@ -477,6 +502,7 @@ model IvaReport {
 // SCHEMA: hr — RRHH y Planilla
 // =============================================================================
 
+/// Departamento — unidad organizacional de RRHH (jerarquía vía parentId).
 model Department {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name        String   @unique @db.VarChar(100)
@@ -496,6 +522,7 @@ model Department {
   @@schema("hr")
 }
 
+/// Puesto — cargo laboral dentro de un Departamento.
 model Position {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   departmentId String   @map("DepartmentId") @db.Uuid
@@ -513,6 +540,7 @@ model Position {
   @@schema("hr")
 }
 
+/// Banco — catálogo de instituciones bancarias para depósito de salarios.
 model Bank {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name      String   @db.VarChar(150)
@@ -528,11 +556,13 @@ model Bank {
   @@schema("hr")
 }
 
+/// Tipo de Documento Requerido — catálogo de documentos laborales exigibles al Empleado.
 model RequiredDocumentType {
   id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name                  String   @unique @db.VarChar(150)
   description           String?  @db.Text
   isMandatory           Boolean  @default(true) @map("IsMandatory")
+  /// Si se indica, solo aplica a ese tipo de contrato del Empleado
   appliesToContractType String?  @map("AppliesToContractType") @db.VarChar(20)
   hasExpiry             Boolean  @default(false) @map("HasExpiry")
   isActive              Boolean  @default(true) @map("IsActive")
@@ -544,6 +574,7 @@ model RequiredDocumentType {
   @@schema("hr")
 }
 
+/// Empleado — colaborador RRHH; PinHash es bcrypt (nunca exponer ni loguear el PIN en claro).
 model Employee {
   id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   firstName             String    @map("FirstName") @db.VarChar(100)
@@ -601,9 +632,12 @@ model Employee {
   terminationReason     String?   @map("TerminationReason") @db.VarChar(40)
   terminationNotes      String?   @map("TerminationNotes") @db.Text
   // Acceso WPF caja
+  /// Hash bcrypt del PIN de caja — nunca devolver ni loguear el PIN en claro
   pinHash               String?   @map("PinHash")
   pinUpdatedAt          DateTime? @map("PinUpdatedAt") @db.Timestamptz
+  /// Permiso para registrar ventas en WPF
   canSell               Boolean   @default(false) @map("CanSell")
+  /// Permiso para abrir/cerrar Sesión de Caja
   canCashier            Boolean   @default(false) @map("CanCashier")
   attendanceEnabled     Boolean   @default(true) @map("AttendanceEnabled")
   isActive              Boolean   @default(true) @map("IsActive")
@@ -634,6 +668,7 @@ model Employee {
   @@schema("hr")
 }
 
+/// Cuenta Bancaria del Empleado — destino de depósito de nómina.
 model EmployeeBankAccount {
   id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employeeId    String   @map("EmployeeId") @db.Uuid
@@ -641,6 +676,7 @@ model EmployeeBankAccount {
   /// CUENTA_CORRIENTE | CUENTA_DE_AHORRO | CUENTA_SALARIO
   accountType   String   @default("CUENTA_DE_AHORRO") @map("AccountType") @db.VarChar(30)
   accountNumber String   @map("AccountNumber") @db.VarChar(40)
+  /// Cuenta principal para transferencias de planilla
   isPrimary     Boolean  @default(true) @map("IsPrimary")
   isActive      Boolean  @default(true) @map("IsActive")
   createdAt     DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
@@ -655,6 +691,7 @@ model EmployeeBankAccount {
   @@schema("hr")
 }
 
+/// Historial Salarial — registro de cambios de sueldo del Empleado.
 model SalaryHistory {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employeeId      String   @map("EmployeeId") @db.Uuid
@@ -673,6 +710,7 @@ model SalaryHistory {
   @@schema("hr")
 }
 
+/// Documento del Empleado — expediente de un Tipo de Documento Requerido entregado/vencido.
 model EmployeeDocument {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employeeId String    @map("EmployeeId") @db.Uuid
@@ -699,6 +737,7 @@ model EmployeeDocument {
   @@schema("hr")
 }
 
+/// Condición de Salud — registro médico/laboral sensible del Empleado (tratar con confidencialidad).
 model HealthConditionRecord {
   id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employeeId            String    @map("EmployeeId") @db.Uuid
@@ -720,6 +759,7 @@ model HealthConditionRecord {
   @@schema("hr")
 }
 
+/// Tramo ISR — tabla de retención de renta por año y frecuencia de pago.
 model IsrBracket {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   year        Int
@@ -728,6 +768,7 @@ model IsrBracket {
   bracketFrom Decimal  @map("BracketFrom") @db.Decimal(10, 2)
   bracketTo   Decimal? @map("BracketTo") @db.Decimal(10, 2)
   fixedAmount Decimal  @default(0) @map("FixedAmount") @db.Decimal(10, 2)
+  /// Tasa marginal del tramo (p. ej. 0.10 = 10%)
   rate        Decimal  @default(0) @map("Rate") @db.Decimal(6, 4)
   excessOver  Decimal  @default(0) @map("ExcessOver") @db.Decimal(10, 2)
   notes       String?  @db.VarChar(200)
@@ -737,6 +778,7 @@ model IsrBracket {
   @@schema("hr")
 }
 
+/// Día Feriado — calendario laboral oficial usado en planilla y vacaciones.
 model Holiday {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name        String   @db.VarChar(100)
@@ -752,6 +794,7 @@ model Holiday {
   @@schema("hr")
 }
 
+/// Período de Planilla — ventana de fechas (mensual/quincenal/semanal) para corridas de nómina.
 model PayrollPeriod {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name        String    @db.VarChar(100)
@@ -760,6 +803,7 @@ model PayrollPeriod {
   startDate   DateTime  @map("StartDate") @db.Date
   endDate     DateTime  @map("EndDate") @db.Date
   paymentDate DateTime  @map("PaymentDate") @db.Date
+  /// true = período cerrado; no admite nuevas corridas
   isClosed    Boolean   @default(false) @map("IsClosed")
   closedAt    DateTime? @map("ClosedAt") @db.Timestamptz
   closedBy    String?   @map("ClosedBy") @db.Uuid
@@ -775,6 +819,7 @@ model PayrollPeriod {
   @@schema("hr")
 }
 
+/// Corrida de Planilla — lote de cálculo/aprobación/pago de un Período de Planilla.
 model PayrollRun {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   periodId        String    @map("PeriodId") @db.Uuid
@@ -808,6 +853,7 @@ model PayrollRun {
   @@schema("hr")
 }
 
+/// Detalle de Planilla — liquidación por Empleado dentro de una Corrida de Planilla.
 model PayrollDetail {
   id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   payrollRunId           String    @map("PayrollRunId") @db.Uuid
@@ -883,6 +929,7 @@ model PayrollDetail {
   @@schema("hr")
 }
 
+/// Línea de Ingreso de Planilla — desglose de percepciones (salario, extras, bonos, etc.).
 model PayrollEarningLine {
   id              String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   payrollDetailId String  @map("PayrollDetailId") @db.Uuid
@@ -890,6 +937,7 @@ model PayrollEarningLine {
   type            String  @db.VarChar(30)
   description     String? @db.VarChar(200)
   amount          Decimal @db.Decimal(10, 2)
+  /// Si es gravable para ISR
   isTaxable       Boolean @default(true) @map("IsTaxable")
   sortOrder       Int     @default(0) @map("SortOrder")
 
@@ -900,6 +948,7 @@ model PayrollEarningLine {
   @@schema("hr")
 }
 
+/// Línea de Deducción de Planilla — desglose de descuentos (AFP, ISSS, ISR, préstamos, etc.).
 model PayrollDeductionLine {
   id              String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   payrollDetailId String  @map("PayrollDetailId") @db.Uuid
@@ -916,6 +965,7 @@ model PayrollDeductionLine {
   @@schema("hr")
 }
 
+/// Corrida de Aguinaldo — lote anual de cálculo/pago de aguinaldo.
 model AguinaldoRun {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   year        Int       @unique
@@ -935,11 +985,13 @@ model AguinaldoRun {
   @@schema("hr")
 }
 
+/// Detalle de Aguinaldo — liquidación de aguinaldo por Empleado en una Corrida de Aguinaldo.
 model AguinaldoDetail {
   id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   aguinaldoRunId String   @map("AguinaldoRunId") @db.Uuid
   employeeId     String   @map("EmployeeId") @db.Uuid
   yearsOfService Decimal  @map("YearsOfService") @db.Decimal(5, 2)
+  /// Días de aguinaldo según antigüedad (Código de Trabajo SV)
   daysEntitled   Decimal  @map("DaysEntitled") @db.Decimal(5, 2)
   dailySalary    Decimal  @map("DailySalary") @db.Decimal(10, 4)
   grossAmount    Decimal  @map("GrossAmount") @db.Decimal(10, 2)
@@ -956,6 +1008,7 @@ model AguinaldoDetail {
   @@schema("hr")
 }
 
+/// Baja Laboral / Finiquito — liquidación de terminación del Empleado (indemnización, vacaciones, etc.).
 model EmployeeTermination {
   id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employeeId            String    @unique @map("EmployeeId") @db.Uuid
@@ -986,6 +1039,7 @@ model EmployeeTermination {
   @@schema("hr")
 }
 
+/// Tipo de Ausencia — catálogo de vacaciones, permisos, bajas médicas y similares.
 model LeaveType {
   id                     String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name                   String   @unique @db.VarChar(100)
@@ -1005,6 +1059,7 @@ model LeaveType {
   @@schema("hr")
 }
 
+/// Solicitud de Ausencia — petición de permiso/vacaciones/incapacidad de un Empleado.
 model LeaveRequest {
   id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employeeId         String    @map("EmployeeId") @db.Uuid
@@ -1042,10 +1097,12 @@ model LeaveRequest {
   @@schema("hr")
 }
 
+/// Saldo de Vacaciones — días ganados/tomados por Empleado y año.
 model VacationBalance {
   id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employeeId       String    @map("EmployeeId") @db.Uuid
   year             Int
+  /// Días anuales según ley (por defecto 15 en SV)
   daysEarned       Decimal   @default(15) @map("DaysEarned") @db.Decimal(5, 1)
   daysTaken        Decimal   @default(0) @map("DaysTaken") @db.Decimal(5, 1)
   lastVacationDate DateTime? @map("LastVacationDate") @db.Date
@@ -1059,6 +1116,7 @@ model VacationBalance {
   @@schema("hr")
 }
 
+/// Declaración ISR — resumen mensual de retenciones de renta a presentar ante MH.
 model IsrDeclaration {
   id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   year           Int
@@ -1085,8 +1143,10 @@ model IsrDeclaration {
 // SCHEMA: system — Configuración, Seguridad y Auditoría
 // =============================================================================
 
+/// Configuración — clave/valor de sistema; Value puede guardar secretos (no loguear).
 model Setting {
   key         String   @id @map("Key") @db.VarChar(100)
+  /// Valor de la clave — puede contener secretos; no loguear ni exponer en APIs públicas
   value       String   @map("Value") @db.Text
   description String?  @map("Description") @db.VarChar(300)
   /// Si es true, puede exponerse en la API pública sin autenticación
@@ -1132,6 +1192,142 @@ model WebUser {
   @@schema("system")
 }
 
+/// Cliente de la tienda pública B2C (auth distinta de WebUsers).
+model ShopCustomer {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email                 String    @unique @map("Email") @db.VarChar(150)
+  passwordHash          String    @map("PasswordHash")
+  fullName              String    @map("FullName") @db.VarChar(200)
+  phone                 String?   @map("Phone") @db.VarChar(30)
+  isActive              Boolean   @default(true) @map("IsActive")
+  /// null = aún no completó el tour de primer uso en tienda
+  onboardingCompletedAt DateTime? @map("OnboardingCompletedAt") @db.Timestamptz
+  lastLoginAt           DateTime? @map("LastLoginAt") @db.Timestamptz
+  createdAt             DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt             DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  favorites   ProductFavorite[]
+  cartItems   ShopCartItem[]
+  shopOrders  ShopOrder[]
+
+  @@map("ShopCustomers")
+  @@schema("system")
+}
+
+/// Ítems del carrito B2C (un renglón por producto por cliente).
+model ShopCartItem {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shopCustomerId String   @map("ShopCustomerId") @db.Uuid
+  productId      String   @map("ProductId") @db.Uuid
+  quantity       Decimal  @map("Quantity") @db.Decimal(12, 3)
+  createdAt      DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  shopCustomer ShopCustomer @relation(fields: [shopCustomerId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([shopCustomerId, productId])
+  @@index([shopCustomerId], map: "IdxShopCartCustomer")
+  @@index([productId], map: "IdxShopCartProduct")
+  @@map("ShopCartItems")
+  @@schema("system")
+}
+
+/// Pedido web B2C derivado del carrito.
+model ShopOrder {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shopCustomerId String    @map("ShopCustomerId") @db.Uuid
+  /// PENDIENTE | CONFIRMADO | ENVIADO | ENTREGADO | CANCELADO
+  status         String    @default("PENDIENTE") @map("Status") @db.VarChar(20)
+  subtotal       Decimal   @map("Subtotal") @db.Decimal(12, 2)
+  taxAmount      Decimal   @default(0) @map("TaxAmount") @db.Decimal(12, 2)
+  total          Decimal   @map("Total") @db.Decimal(12, 2)
+  customerNotes  String?   @map("CustomerNotes") @db.Text
+  adminNotes     String?   @map("AdminNotes") @db.Text
+  createdAt      DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt      DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  shopCustomer ShopCustomer   @relation(fields: [shopCustomerId], references: [id])
+  lines        ShopOrderLine[]
+
+  @@index([shopCustomerId], map: "IdxShopOrdersCustomer")
+  @@index([status], map: "IdxShopOrdersStatus")
+  @@index([createdAt], map: "IdxShopOrdersCreatedAt")
+  @@map("ShopOrders")
+  @@schema("system")
+}
+
+model ShopOrderLine {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shopOrderId String @map("ShopOrderId") @db.Uuid
+  productId  String  @map("ProductId") @db.Uuid
+  quantity   Decimal @map("Quantity") @db.Decimal(12, 3)
+  unitPrice  Decimal @map("UnitPrice") @db.Decimal(12, 2)
+  subtotal   Decimal @map("Subtotal") @db.Decimal(12, 2)
+
+  shopOrder ShopOrder @relation(fields: [shopOrderId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id])
+
+  @@index([shopOrderId], map: "IdxShopOrderLinesOrder")
+  @@index([productId], map: "IdxShopOrderLinesProduct")
+  @@map("ShopOrderLines")
+  @@schema("system")
+}
+
+/// Favoritos de productos del cliente de tienda.
+model ProductFavorite {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shopCustomerId String   @map("ShopCustomerId") @db.Uuid
+  productId      String   @map("ProductId") @db.Uuid
+  createdAt      DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+
+  shopCustomer ShopCustomer @relation(fields: [shopCustomerId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([shopCustomerId, productId])
+  @@index([shopCustomerId], map: "IdxProductFavoritesCustomer")
+  @@index([productId], map: "IdxProductFavoritesProduct")
+  @@map("ProductFavorites")
+  @@schema("system")
+}
+
+/// Mensajes del formulario Contáctanos (tienda pública → bandeja admin).
+model ContactMessage {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name       String   @map("Name") @db.VarChar(150)
+  email      String   @map("Email") @db.VarChar(150)
+  phone      String?  @map("Phone") @db.VarChar(30)
+  subject    String   @map("Subject") @db.VarChar(200)
+  message    String   @map("Message") @db.Text
+  /// NEW | READ | ARCHIVED
+  status     String   @default("NEW") @map("Status") @db.VarChar(20)
+  adminNotes String?  @map("AdminNotes") @db.Text
+  createdAt  DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt  DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  @@index([status], map: "IdxContactMessagesStatus")
+  @@index([createdAt], map: "IdxContactMessagesCreatedAt")
+  @@map("ContactMessages")
+  @@schema("system")
+}
+
+/// Tokens de recuperación de contraseña (WebUser o ShopCustomer).
+model PasswordResetToken {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// WEB_USER | SHOP_CUSTOMER
+  audience  String    @map("Audience") @db.VarChar(20)
+  userId    String    @map("UserId") @db.Uuid
+  tokenHash String    @unique @map("TokenHash") @db.VarChar(128)
+  expiresAt DateTime  @map("ExpiresAt") @db.Timestamptz
+  usedAt    DateTime? @map("UsedAt") @db.Timestamptz
+  createdAt DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+
+  @@index([audience, userId], map: "IdxPasswordResetAudienceUser")
+  @@map("PasswordResetTokens")
+  @@schema("system")
+}
+
+/// Bitácora de Auditoría — rastro inmutable de INSERT/UPDATE/DELETE sobre tablas de negocio.
 model AuditLog {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tableName String   @map("TableName") @db.VarChar(100)

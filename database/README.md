@@ -1,4 +1,4 @@
-# Base de datos — FlexoCable-backend
+# Base de datos — ferreteria_backend
 
 ## Fuente de verdad (v3.0)
 
@@ -7,7 +7,7 @@ Desde el plan v3.0, el esquema se define en **`prisma/schema.prisma`**. Las tabl
 ## Instalación nueva (recomendado)
 
 ```bash
-cd FlexoCable-backend
+cd ferreteria_backend
 docker compose up -d
 cp .env.example .env
 npm install
@@ -24,7 +24,7 @@ npm run db:seed
 
 ## Legacy
 
-`FlexoCable/FlexoCableSV.PuntoVenta/Squema.sql` y `FlexoCable/tools/FlexoCable.DbApply` quedan como referencia histórica. **No** mezclar Squema.sql y Prisma sobre la misma BD sin coordinación.
+`erp_ferreteria/Ferreteria.PuntoVenta/Squema.sql` y `erp_ferreteria/tools/Ferreteria.DbApply` quedan como referencia histórica. **No** mezclar Squema.sql y Prisma sobre la misma BD sin coordinación.
 
 ## Bases antiguas con INTEGER / BIGSERIAL
 
