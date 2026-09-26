@@ -42,3 +42,7 @@ export const forgotPasswordRateLimiter = rateLimit({
     message: "Demasiados intentos. Intenta de nuevo en unos minutos.",
   },
 });
+
+/** Protege operaciones sensibles de contraseña frente a reintentos automatizados. */
+export const resetPasswordRateLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 8, standardHeaders: true, legacyHeaders: false, message: { success: false, error: "RATE_LIMITED", message: "Demasiados intentos. Espera unos minutos." } });
+export const changePasswordRateLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: true, legacyHeaders: false, message: { success: false, error: "RATE_LIMITED", message: "Demasiados intentos. Espera unos minutos." } });

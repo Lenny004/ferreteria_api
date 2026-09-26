@@ -5,6 +5,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
+import { parseUuidParam } from "../../shared/validation.js";
 import { shopPaymentsService } from "./shop-payments.service.js";
 
 const payOrderSchema = z.object({
@@ -19,7 +20,7 @@ export async function payOrder(req: Request, res: Response, next: NextFunction) 
     const body = payOrderSchema.parse(req.body ?? {});
     jsonSuccess(
       res,
-      await shopPaymentsService.payOrder(req.user!.userId, req.params.id as string, body),
+      await shopPaymentsService.payOrder(req.user!.userId, parseUuidParam(req.params).id, body),
     );
   } catch (err) {
     next(err);

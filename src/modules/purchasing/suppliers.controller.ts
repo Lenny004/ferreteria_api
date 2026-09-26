@@ -5,6 +5,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
+import { parseUuidParam } from "../../shared/validation.js";
 import { suppliersService } from "./suppliers.service.js";
 
 const listQuerySchema = z.object({
@@ -54,7 +55,7 @@ export async function list(req: Request, res: Response, next: NextFunction) {
 /** GET `/:id` — detalle de un proveedor. */
 export async function getById(req: Request, res: Response, next: NextFunction) {
   try {
-    jsonSuccess(res, await suppliersService.getById(req.params.id as string));
+  jsonSuccess(res, await suppliersService.getById(parseUuidParam(req.params).id));
   } catch (err) {
     next(err);
   }
@@ -74,7 +75,7 @@ export async function update(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(
       res,
-      await suppliersService.update(req.params.id as string, updateSchema.parse(req.body)),
+      await suppliersService.update(parseUuidParam(req.params).id, updateSchema.parse(req.body)),
     );
   } catch (err) {
     next(err);

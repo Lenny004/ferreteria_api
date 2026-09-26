@@ -13,6 +13,10 @@ export function errorHandler(
   res: Response,
   _next: NextFunction,
 ): void {
+  if (isMalformedJsonError(err)) {
+    res.status(400).json({ success: false, error: "INVALID_JSON", message: "JSON mal formado" });
+    return;
+  }
   if (err instanceof ZodError) {
     res.status(400).json({
       success: false,
@@ -38,4 +42,8 @@ export function errorHandler(
     error: "INTERNAL_ERROR",
     message: "Error interno del servidor",
   });
+}
+
+function isMalformedJsonError(err: unknown): boolean {
+  return typeof err === "object" && err !== null && "type" in err && (err as { type?: string }).type === "entity.parse.failed";
 }

@@ -5,6 +5,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
+import { parseUuidParam } from "../../shared/validation.js";
 import { publicCatalogService } from "./public-catalog.service.js";
 
 const listQuerySchema = z.object({
@@ -62,7 +63,7 @@ export async function listProducts(req: Request, res: Response, next: NextFuncti
 /** GET `/products/:id` — detalle de un producto activo. */
 export async function getProduct(req: Request, res: Response, next: NextFunction) {
   try {
-    jsonSuccess(res, await publicCatalogService.getProduct(req.params.id as string));
+    jsonSuccess(res, await publicCatalogService.getProduct(parseUuidParam(req.params).id));
   } catch (err) {
     next(err);
   }

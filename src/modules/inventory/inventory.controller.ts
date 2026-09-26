@@ -5,6 +5,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
+import { parseUuidParam } from "../../shared/validation.js";
 import { ADMIN_MOVEMENT_TYPES, inventoryService } from "./inventory.service.js";
 
 const listQuerySchema = z.object({
@@ -75,7 +76,8 @@ export async function kardex(req: Request, res: Response, next: NextFunction) {
         skip: z.coerce.number().int().nonnegative().optional(),
       })
       .parse(req.query);
-    jsonSuccess(res, await inventoryService.kardex(req.params.productId as string, query));
+    const { productId } = z.object({ productId: z.string().uuid() }).strict().parse(req.params);
+    jsonSuccess(res, await inventoryService.kardex(productId, query));
   } catch (err) {
     next(err);
   }
@@ -93,7 +95,7 @@ export async function listAlerts(req: Request, res: Response, next: NextFunction
 /** PATCH `/alerts/:id/resolve` — marca alerta como resuelta. */
 export async function resolveAlert(req: Request, res: Response, next: NextFunction) {
   try {
-    jsonSuccess(res, await inventoryService.resolveAlert(req.params.id as string));
+    jsonSuccess(res, await inventoryService.resolveAlert(parseUuidParam(req.params).id));
   } catch (err) {
     next(err);
   }
