@@ -11,8 +11,34 @@
  */
 
 import { PrismaClient } from '@prisma/client';
+import { pathToFileURL } from 'node:url';
 
 const prisma = new PrismaClient();
+
+/** Catálogo de unidades comerciales definido por el esquema histórico del POS. */
+export const SALE_UNITS = [
+  { code: 'UNIDAD', name: 'Unidad', abbreviation: 'u' },
+  { code: 'MEDIA_DOCENA', name: 'Media docena', abbreviation: '½doc' },
+  { code: 'DOCENA', name: 'Docena', abbreviation: 'doc' },
+  { code: 'PAR', name: 'Par', abbreviation: 'par' },
+  { code: 'CIENTO', name: 'Ciento', abbreviation: 'cto' },
+  { code: 'MILLAR', name: 'Millar', abbreviation: 'mil' },
+  { code: 'CAJA', name: 'Caja', abbreviation: 'caja' },
+  { code: 'BULTO', name: 'Bulto', abbreviation: 'bul' },
+  { code: 'SACO', name: 'Saco', abbreviation: 'saco' },
+  { code: 'ROLLO', name: 'Rollo', abbreviation: 'rollo' },
+  { code: 'JUEGO', name: 'Juego', abbreviation: 'jgo' },
+] as const;
+
+/** Escapa un literal SQL de texto (valores constantes del propio seed, nunca entrada de usuario). */
+function sqlText(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+/** Filas VALUES generadas desde {@link SALE_UNITS} para que el catálogo tenga una sola fuente. */
+export function saleUnitValuesSql(): string {
+  return SALE_UNITS.map((unit) => `(${sqlText(unit.code)}, ${sqlText(unit.name)}, ${sqlText(unit.abbreviation)})`).join(",\n      ");
+}
 
 /**
  * Inserta o actualiza catálogos, empleados demo y settings del sistema.
@@ -35,6 +61,15 @@ async function seedDemoData(): Promise<void> {
       name = EXCLUDED.name,
       "UnitLabel" = EXCLUDED."UnitLabel",
       decimals = EXCLUDED.decimals;
+
+    -- SaleUnit: presentaciones comerciales compartidas con el POS.
+    INSERT INTO public."SaleUnits" ("code", "name", "Abbreviation") VALUES
+      ${saleUnitValuesSql()}
+    ON CONFLICT ("code") DO UPDATE SET
+      "name" = EXCLUDED."name",
+      "Abbreviation" = EXCLUDED."Abbreviation",
+      "IsActive" = TRUE,
+      "UpdatedAt" = NOW();
 
     -- Family: departamentos ferreteros para catálogo web y POS.
     INSERT INTO public."Families" (code, name, description, slug, "IconKey", "ImageUrl", "SortOrder") VALUES
@@ -194,6 +229,19 @@ async function seedDemoData(): Promise<void> {
       "IsActive" = TRUE,
       "UpdatedAt" = NOW();
 
+    -- Cada producto conserva una presentación base UNIDAD con su precio vigente.
+    INSERT INTO public."ProductSaleUnits" ("ProductId", "SaleUnitId", "UnitsPerPackage", "SalePrice", "IsDefault", "IsActive")
+    SELECT p.id, su.id, 1, p."SalePrice", TRUE, TRUE
+    FROM public."Products" p
+    CROSS JOIN public."SaleUnits" su
+    WHERE su."code" = 'UNIDAD'
+    ON CONFLICT ("ProductId", "SaleUnitId") DO UPDATE SET
+      "UnitsPerPackage" = EXCLUDED."UnitsPerPackage",
+      "SalePrice" = EXCLUDED."SalePrice",
+      "IsDefault" = EXCLUDED."IsDefault",
+      "IsActive" = EXCLUDED."IsActive",
+      "UpdatedAt" = NOW();
+
     -- Department: estructura organizacional (hr).
     INSERT INTO hr."Departments" (name) VALUES
       ('Produccion'), ('Ventas'), ('Bodega'), ('Administracion')
@@ -341,12 +389,14 @@ async function seedDemoData(): Promise<void> {
   `);
 }
 
-seedDemoData()
-  .then(async () => {
-    await prisma.$disconnect();
-  })
-  .catch(async (error) => {
-    console.error(error);
-    await prisma.$disconnect();
-    process.exit(1);
-  });
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  seedDemoData()
+    .then(async () => {
+      await prisma.$disconnect();
+    })
+    .catch(async (error) => {
+      console.error(error);
+      await prisma.$disconnect();
+      process.exit(1);
+    });
+}
