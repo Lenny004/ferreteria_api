@@ -1,0 +1,61 @@
+---
+alwaysApply: true
+name: reglas-proyecto
+description: "Obligación de seguir los estándares de calidad y documentación del proyecto en todo cambio de código."
+---
+
+# Reglas del Proyecto
+
+Todo agente o desarrollador que modifique código en este repositorio DEBE:
+
+## 1. Aplicar el Estándar de Calidad
+
+Leer y aplicar la skill **principios-calidad** (`.cursor/skills/principios-calidad/SKILL.md`) al diseñar, escribir, revisar o auditar código:
+
+- Arquitectura SOLID, Clean Architecture, Hexagonal.
+- Validación Zero Trust con Zod.
+- Transacciones ACID con Prisma.
+- Seguridad: RBAC, hash de contraseñas, JWT, rate-limiting, protección CSRF/XSS/SQL Injection.
+- Telemetría estructurada con Correlation IDs.
+- Manejo centralizado de excepciones.
+- Verificación de precondiciones/postcondiciones.
+
+## 2. Documentar según el Estándar
+
+Leer y aplicar la skill **documentacion-codigo** (`.cursor/skills/documentacion-codigo/SKILL.md`) al escribir o modificar código:
+
+- JSDoc/TSDoc para funciones, clases, interfaces, tipos.
+- Comentarios inline solo para explicar el **por qué**, no el **qué**.
+- Idioma: español.
+- No modificar lógica, solo agregar/actualizar documentación.
+
+## 3. Reportar Cumplimiento en PRs
+
+Al crear o actualizar un pull request, incluir en la descripción una sección que indique **cómo se cumplieron** estas reglas:
+
+```markdown
+## ✅ Cumplimiento de Estándares
+
+### Principios de Calidad Aplicados
+- [x] Validación de entrada con Zod (Zero Trust, criterios 16-30)
+- [x] Transacción Prisma para garantizar atomicidad (criterio 47)
+- [x] Manejo centralizado de excepciones (criterio 66)
+- [x] Logging estructurado con Correlation ID (criterios 91-92)
+
+### Documentación Agregada/Actualizada
+- [x] JSDoc en todos los servicios modificados
+- [x] Comentarios inline explicando reglas de negocio no obvias
+- [x] Interfaces documentadas con contexto de uso
+```
+
+**Si no aplica ningún criterio** (ej. cambio solo en configuración), indicar explícitamente:
+
+```markdown
+## ✅ Cumplimiento de Estándares
+
+Este cambio no modifica código de aplicación (solo configuración/docs), por lo que no aplican los estándares de calidad y documentación de código.
+```
+
+---
+
+**Excepción:** Los cambios en archivos generados automáticamente (Prisma Client, node_modules, dist/, build/, etc.) no requieren documentación ni reporte de cumplimiento.
