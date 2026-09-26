@@ -117,9 +117,9 @@ docker compose up -d
 # 2. Configurar variables
 cp .env.example .env
 
-# 3. Crear tablas desde Prisma
+# 3. Aplicar el historial de migraciones
 npm install
-npm run db:push
+npm run db:migrate:deploy
 
 # 4. Cargar seeds
 npm run db:seed
@@ -135,7 +135,7 @@ postgresql://ferreteria_user:ferreteria_dev_password@localhost:55432/ferreteria
 
 - Objetivo: **Supabase PostgreSQL** con el mismo esquema.
 - Aplicar migraciones con `npm run db:migrate:deploy` cuando el historial de migraciones esté congelado.
-- En desarrollo activo se puede usar `npm run db:push` para iterar el schema.
+- En desarrollo activo se usa `migrate dev` sobre una base personal; `db push` está prohibido en bases compartidas.
 
 ---
 
@@ -324,7 +324,7 @@ cd ferreteria_backend
 docker compose up -d
 cp .env.example .env
 npm install
-npm run db:push
+npm run db:migrate:deploy
 npm run db:seed
 
 # API administrativa (Fase 8+)
@@ -356,8 +356,6 @@ npm run docker:reset   # Reiniciar BD local (borra datos)
 | Script | Descripción |
 |---|---|
 | `db:generate` | Genera cliente Prisma |
-| `db:push` | Sincroniza schema → BD (desarrollo) |
-| `db:push:force` | Reset completo + push (⚠️ borra datos) |
 | `db:migrate:dev` | Crea migración versionada |
 | `db:migrate:deploy` | Aplica migraciones en staging/prod |
 | `db:migrate:reset` | Reset + migrate + seed |
@@ -403,6 +401,18 @@ Alineado a `FERRETERIA_PLAN_FINALIZACION_APP.md`:
 | Referencia UI RRHH | `erp-admin-web` — portar pantallas a `ferreteria_adminweb` |
 
 ---
+
+### Contrato de autenticación del panel
+
+- `POST /api/v1/auth/login`: devuelve `{ accessToken, user, csrfToken }` y emite `fer_access` (`httpOnly`, `Path=/api`, `SameSite` configurable, `Secure` en producción) y `fer_csrf` (legible por JS).
+- `POST /api/v1/auth/logout`: elimina ambas cookies.
+- `GET /api/v1/auth/csrf`: rota el token CSRF (requiere sesión) y lo devuelve como `{ csrfToken }`.
+- El panel (otro origen) debe usar `credentials: 'include'` y enviar en `X-CSRF-Token` el `csrfToken` recibido en el cuerpo de login/csrf (guardado en memoria), porque `document.cookie` del panel no ve `fer_csrf` (cookie del dominio de la API con `Path=/api`).
+- `GET /api/v1/auth/me`: consulta la sesión autenticada.
+- Las mutaciones autenticadas por cookie requieren `X-CSRF-Token` igual a `fer_csrf`; Bearer no requiere CSRF.
+- Errores: `UNAUTHORIZED` (401), `FORBIDDEN` (403), `CSRF_INVALID` (403), `RATE_LIMITED` (429), `INVALID_JSON` (400), `VALIDATION_ERROR` (400).
+
+El POS WPF no llama a la API: usa EF Core directo. Bearer se conserva para clientes no navegador, `tools/Ferreteria.Smoke` y scripts futuros.
 
 ## Licencia
 
