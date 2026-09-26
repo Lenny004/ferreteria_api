@@ -9,6 +9,7 @@ import { prisma } from "../../lib/prisma.js";
 import { AppError, BadRequestError, ConflictError } from "../../shared/errors.js";
 import { signAccessToken } from "../../shared/jwt.js";
 import { buildPasswordResetEmail, sendMail } from "../../lib/mail.js";
+import { getEnv } from "../../config/env.js";
 
 const shopCustomerSelect = {
   id: true,
@@ -188,16 +189,17 @@ export const shopAuthService = {
       audience: "SHOP_CUSTOMER",
       resetToken: rawToken,
     });
-    const { sent } = await sendMail({
+    await sendMail({
       to: customer.email,
       subject: mail.subject,
       text: mail.text,
     });
 
-    if (process.env.NODE_ENV !== "production") {
-      return { ...generic, resetToken: rawToken, expiresAt, emailSent: sent };
+    const env = getEnv();
+    if (env.NODE_ENV !== "production" && env.EXPOSE_RESET_TOKEN_IN_DEV) {
+      return { ...generic, resetToken: rawToken, expiresAt };
     }
-    return { ...generic, emailSent: sent };
+    return generic;
   },
 
   /** Restablece contraseña con token de un solo uso. */

@@ -5,6 +5,7 @@ import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
 import { productsService } from "./products.service.js";
+import { parseUuidParam } from "../../shared/validation.js";
 
 const listQuerySchema = z.object({
   q: z.string().optional(),
@@ -52,7 +53,7 @@ export async function list(req: Request, res: Response, next: NextFunction) {
 /** GET `/:id` — Detalle de un producto con familia, subfamilia y unidad de medida. */
 export async function getById(req: Request, res: Response, next: NextFunction) {
   try {
-    jsonSuccess(res, await productsService.getById(req.params.id as string));
+    jsonSuccess(res, await productsService.getById(parseUuidParam(req.params).id));
   } catch (err) {
     next(err);
   }
@@ -72,7 +73,7 @@ export async function update(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(
       res,
-      await productsService.update(req.params.id as string, updateSchema.parse(req.body)),
+      await productsService.update(parseUuidParam(req.params).id, updateSchema.parse(req.body)),
     );
   } catch (err) {
     next(err);

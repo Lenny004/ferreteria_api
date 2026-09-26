@@ -6,6 +6,7 @@ import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
 import { contactService } from "./contact.service.js";
+import { parseUuidParam } from "../../shared/validation.js";
 
 const createSchema = z.object({
   name: z.string().min(2).max(150),
@@ -48,7 +49,7 @@ export async function list(req: Request, res: Response, next: NextFunction) {
 /** GET `/:id` — detalle de un mensaje (admin). */
 export async function getById(req: Request, res: Response, next: NextFunction) {
   try {
-    jsonSuccess(res, await contactService.getById(req.params.id as string));
+  jsonSuccess(res, await contactService.getById(parseUuidParam(req.params).id));
   } catch (err) {
     next(err);
   }
@@ -59,7 +60,7 @@ export async function update(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(
       res,
-      await contactService.update(req.params.id as string, updateSchema.parse(req.body)),
+    await contactService.update(parseUuidParam(req.params).id, updateSchema.parse(req.body)),
     );
   } catch (err) {
     next(err);
