@@ -1,3 +1,8 @@
+/**
+ * Servicio de órdenes de compra: ciclo BORRADOR → CONFIRMADA → RECIBIDA.
+ * Al recibir, genera movimientos `ENTRADA_COMPRA` y actualiza stock/costo promedio.
+ */
+
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { BadRequestError, NotFoundError } from "../../shared/errors.js";
@@ -46,6 +51,7 @@ function toDecimal(value: number | string): Prisma.Decimal {
   return new Prisma.Decimal(value);
 }
 
+/** Calcula subtotal, IVA y total de una línea: `subtotal = qty × costo`, `tax = subtotal × tasa`. */
 function lineAmounts(quantity: number, unitCost: number, taxRate: number) {
   const qty = toDecimal(quantity);
   const cost = toDecimal(unitCost);
@@ -154,6 +160,7 @@ async function resolveEmployeeId(
 }
 
 export const purchaseOrdersService = {
+  /** Lista órdenes de compra con filtros de estado, proveedor y texto. */
   async list(params: {
     q?: string;
     status?: string;
@@ -189,6 +196,7 @@ export const purchaseOrdersService = {
     return { items, total, take, skip };
   },
 
+  /** Obtiene una OC con proveedor, líneas y productos. */
   async getById(id: string) {
     const order = await prisma.purchaseOrder.findUnique({
       where: { id },
@@ -198,6 +206,7 @@ export const purchaseOrdersService = {
     return order;
   },
 
+  /** Crea OC en estado BORRADOR con totales calculados por línea (IVA 13% por defecto). */
   async create(
     input: {
       supplierId: string;
@@ -247,6 +256,7 @@ export const purchaseOrdersService = {
     });
   },
 
+  /** Actualiza OC solo en estado BORRADOR; puede reemplazar líneas y recalcular totales. */
   async update(
     id: string,
     input: {
@@ -311,6 +321,7 @@ export const purchaseOrdersService = {
     });
   },
 
+  /** Pasa OC de BORRADOR a CONFIRMADA. */
   async confirm(id: string) {
     const order = await prisma.purchaseOrder.findUnique({
       where: { id },
@@ -330,6 +341,7 @@ export const purchaseOrdersService = {
     });
   },
 
+  /** Cancela OC que no esté RECIBIDA. */
   async cancel(id: string) {
     const order = await prisma.purchaseOrder.findUnique({ where: { id } });
     if (!order) throw new NotFoundError("Orden de compra no encontrada");

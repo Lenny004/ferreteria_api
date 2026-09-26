@@ -1,3 +1,7 @@
+/**
+ * Capa HTTP de configuración: lectura pública y administración.
+ */
+
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
@@ -9,6 +13,7 @@ const upsertSchema = z.object({
   isPublic: z.boolean().optional(),
 });
 
+/** GET `/` — ajustes públicos (sin auth). */
 export async function listPublic(_req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await settingsService.listPublic());
@@ -17,6 +22,7 @@ export async function listPublic(_req: Request, res: Response, next: NextFunctio
   }
 }
 
+/** GET `/:key` — un ajuste público por clave. */
 export async function getPublic(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await settingsService.getPublicByKey(req.params.key as string));
@@ -25,6 +31,7 @@ export async function getPublic(req: Request, res: Response, next: NextFunction)
   }
 }
 
+/** GET `/` — todos los ajustes (admin). */
 export async function listAdmin(req: Request, res: Response, next: NextFunction) {
   try {
     const q = z.string().optional().parse(req.query.q);
@@ -34,6 +41,7 @@ export async function listAdmin(req: Request, res: Response, next: NextFunction)
   }
 }
 
+/** PATCH `/:key` — crea o actualiza ajuste (admin). */
 export async function upsert(req: Request, res: Response, next: NextFunction) {
   try {
     const body = upsertSchema.parse(req.body);

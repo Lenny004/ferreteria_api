@@ -6,6 +6,10 @@ import {
 } from "../../middleware/rate-limit.js";
 import * as controller from "./auth.controller.js";
 
+/**
+ * Rutas de autenticación admin (`/api/v1/auth`).
+ * Públicas: login, forgot/reset password. Protegidas: me, change-password.
+ */
 const router = Router();
 
 router.post("/login", loginRateLimiter, controller.login);

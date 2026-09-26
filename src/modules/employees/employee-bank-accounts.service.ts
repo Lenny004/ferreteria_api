@@ -1,6 +1,10 @@
+/**
+ * Cuentas bancarias de empleados (`hr.EmployeeBankAccounts`) para depósitos de planilla.
+ */
 import { prisma } from "../../lib/prisma.js";
 import { NotFoundError } from "../../shared/errors.js";
 
+/** Tipos de cuenta admitidos para depósito. */
 export const ACCOUNT_TYPES = ["CUENTA_CORRIENTE", "CUENTA_DE_AHORRO", "CUENTA_SALARIO"] as const;
 export type AccountType = (typeof ACCOUNT_TYPES)[number];
 
@@ -31,6 +35,7 @@ async function assertBankExists(bankId: string) {
 }
 
 export const employeeBankAccountsService = {
+  /** Lista cuentas activas del empleado; primarias primero. */
   async list(employeeId: string) {
     await assertEmployeeExists(employeeId);
     return prisma.employeeBankAccount.findMany({
@@ -40,6 +45,10 @@ export const employeeBankAccountsService = {
     });
   },
 
+  /**
+   * Crea una cuenta bancaria.
+   * Si `isPrimary` es true, desmarca las demás cuentas primarias del empleado en la misma transacción.
+   */
   async create(
     employeeId: string,
     data: {
@@ -75,6 +84,12 @@ export const employeeBankAccountsService = {
     });
   },
 
+  /**
+   * Actualización parcial de una cuenta.
+   * Al marcar `isPrimary: true`, desmarca las demás cuentas primarias del empleado.
+   *
+   * @throws {NotFoundError} Si el empleado o la cuenta no existen.
+   */
   async update(
     employeeId: string,
     id: string,

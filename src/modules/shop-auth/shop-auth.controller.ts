@@ -1,3 +1,7 @@
+/**
+ * Capa HTTP de autenticación de clientes de la tienda en línea.
+ */
+
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
@@ -34,6 +38,7 @@ const resetSchema = z.object({
   newPassword: z.string().min(8).max(128),
 });
 
+/** POST `/register` — registro de cliente tienda. */
 export async function register(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await shopAuthService.register(registerSchema.parse(req.body)), 201);
@@ -42,6 +47,7 @@ export async function register(req: Request, res: Response, next: NextFunction) 
   }
 }
 
+/** POST `/login` — inicio de sesión y JWT. */
 export async function login(req: Request, res: Response, next: NextFunction) {
   try {
     const body = loginSchema.parse(req.body);
@@ -51,6 +57,7 @@ export async function login(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** GET `/me` — perfil del cliente autenticado. */
 export async function me(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await shopAuthService.me(req.user!.userId));
@@ -59,6 +66,7 @@ export async function me(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** PATCH `/me` — actualiza perfil. */
 export async function updateProfile(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(
@@ -70,6 +78,7 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
   }
 }
 
+/** POST `/change-password` — cambio de contraseña con contraseña actual. */
 export async function changePassword(req: Request, res: Response, next: NextFunction) {
   try {
     const body = changePasswordSchema.parse(req.body);
@@ -86,6 +95,7 @@ export async function changePassword(req: Request, res: Response, next: NextFunc
   }
 }
 
+/** POST `/forgot-password` — solicita recuperación (rate limited). */
 export async function forgotPassword(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await shopAuthService.forgotPassword(forgotSchema.parse(req.body).email));
@@ -94,6 +104,7 @@ export async function forgotPassword(req: Request, res: Response, next: NextFunc
   }
 }
 
+/** POST `/reset-password` — restablece contraseña con token. */
 export async function resetPassword(req: Request, res: Response, next: NextFunction) {
   try {
     const body = resetSchema.parse(req.body);
@@ -103,6 +114,7 @@ export async function resetPassword(req: Request, res: Response, next: NextFunct
   }
 }
 
+/** POST `/complete-onboarding` — marca onboarding completado. */
 export async function completeOnboarding(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await shopAuthService.completeOnboarding(req.user!.userId));

@@ -1,3 +1,6 @@
+/**
+ * Capa HTTP para clientes de facturación (CF/CCF).
+ */
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
@@ -5,6 +8,15 @@ import { customersService } from "./customers.service.js";
 
 const listQuerySchema = z.object({
   q: z.string().optional(),
+  customerType: z.enum(["CF", "CCF"]).optional(),
+  hasNit: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === "true")),
+  hasNrc: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === "true")),
   take: z.coerce.number().int().positive().max(200).optional(),
   skip: z.coerce.number().int().nonnegative().optional(),
 });
@@ -26,6 +38,7 @@ const updateSchema = createSchema.partial().extend({
   isActive: z.boolean().optional(),
 });
 
+/** GET `/` — Lista clientes activos paginados con búsqueda por nombre o documentos. */
 export async function list(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await customersService.list(listQuerySchema.parse(req.query)));
@@ -34,6 +47,7 @@ export async function list(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** GET `/:id` — Detalle de un cliente. */
 export async function getById(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await customersService.getById(req.params.id as string));
@@ -42,6 +56,7 @@ export async function getById(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** POST `/` — Crea un cliente (tipo CF por defecto). */
 export async function create(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await customersService.create(createSchema.parse(req.body)), 201);
@@ -50,6 +65,7 @@ export async function create(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** PATCH `/:id` — Actualización parcial de cliente. */
 export async function update(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(

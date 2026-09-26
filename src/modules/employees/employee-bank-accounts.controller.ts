@@ -1,3 +1,6 @@
+/**
+ * Capa HTTP para cuentas bancarias de empleados.
+ */
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
@@ -26,6 +29,7 @@ const updateSchema = createSchema.partial().extend({
   isActive: z.boolean().optional(),
 });
 
+/** GET `/:employeeId/bank-accounts` — Lista cuentas activas del empleado. */
 export async function list(req: Request, res: Response, next: NextFunction) {
   try {
     const { employeeId } = employeeIdParamSchema.parse(req.params);
@@ -36,6 +40,7 @@ export async function list(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** POST `/:employeeId/bank-accounts` — Registra cuenta bancaria del empleado. */
 export async function create(req: Request, res: Response, next: NextFunction) {
   try {
     const { employeeId } = employeeIdParamSchema.parse(req.params);
@@ -47,6 +52,7 @@ export async function create(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** PATCH `/:employeeId/bank-accounts/:id` — Actualización parcial de cuenta bancaria. */
 export async function update(req: Request, res: Response, next: NextFunction) {
   try {
     const { employeeId, id } = idParamSchema.parse(req.params);

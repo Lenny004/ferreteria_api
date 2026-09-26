@@ -1,3 +1,7 @@
+/**
+ * Capa HTTP de proveedores: CRUD para el módulo de compras.
+ */
+
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
@@ -8,6 +12,11 @@ const listQuerySchema = z.object({
   take: z.coerce.number().int().positive().max(200).optional(),
   skip: z.coerce.number().int().nonnegative().optional(),
   activeOnly: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === "true")),
+  country: z.string().min(2).max(5).optional(),
+  withCredit: z
     .enum(["true", "false"])
     .optional()
     .transform((v) => (v === undefined ? undefined : v === "true")),
@@ -33,6 +42,7 @@ const updateSchema = createSchema.partial().extend({
   isActive: z.boolean().optional(),
 });
 
+/** GET `/` — lista proveedores con búsqueda y paginación. */
 export async function list(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await suppliersService.list(listQuerySchema.parse(req.query)));
@@ -41,6 +51,7 @@ export async function list(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** GET `/:id` — detalle de un proveedor. */
 export async function getById(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await suppliersService.getById(req.params.id as string));
@@ -49,6 +60,7 @@ export async function getById(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** POST `/` — crea proveedor. */
 export async function create(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await suppliersService.create(createSchema.parse(req.body)), 201);
@@ -57,6 +69,7 @@ export async function create(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** PATCH `/:id` — actualiza proveedor. */
 export async function update(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(

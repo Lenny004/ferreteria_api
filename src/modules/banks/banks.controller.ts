@@ -1,3 +1,6 @@
+/**
+ * Capa HTTP del catálogo de bancos para depósitos de planilla.
+ */
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
@@ -20,6 +23,7 @@ const listQuerySchema = z.object({
     .transform((v) => (v === undefined ? true : v === "true")),
 });
 
+/** GET `/` — Lista bancos; por defecto solo activos. */
 export async function list(req: Request, res: Response, next: NextFunction) {
   try {
     const { activeOnly } = listQuerySchema.parse(req.query);
@@ -29,6 +33,7 @@ export async function list(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** POST `/` — Crea un banco en el catálogo. */
 export async function create(req: Request, res: Response, next: NextFunction) {
   try {
     const body = createSchema.parse(req.body);
@@ -38,6 +43,7 @@ export async function create(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** PATCH `/:id` — Actualización parcial de banco. */
 export async function update(req: Request, res: Response, next: NextFunction) {
   try {
     const body = updateSchema.parse(req.body);

@@ -1,3 +1,9 @@
+/**
+ * Rutas de configuración.
+ * - Público: `/api/v1/public/settings`
+ * - Admin: `/api/v1/settings` (ADMIN u OWNER)
+ */
+
 import { Router } from "express";
 import { authenticate } from "../../middleware/authenticate.js";
 import { requireRole } from "../../middleware/require-role.js";

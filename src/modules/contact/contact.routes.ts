@@ -1,3 +1,8 @@
+/**
+ * Rutas de mensajes de contacto (`/api/v1/contact-messages`).
+ * POST público con rate limit; lectura/gestión requiere rol admin.
+ */
+
 import { Router } from "express";
 import { authenticate } from "../../middleware/authenticate.js";
 import { requireRole } from "../../middleware/require-role.js";

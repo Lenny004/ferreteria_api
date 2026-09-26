@@ -1,3 +1,6 @@
+/**
+ * CRUD de productos (`inventory.Products`): búsqueda, precios, stock y relaciones de catálogo.
+ */
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { NotFoundError } from "../../shared/errors.js";
@@ -9,6 +12,7 @@ const productInclude = {
 } as const;
 
 export const productsService = {
+  /** Lista productos activos con paginación; `take` máximo 200. */
   async list(params: {
     q?: string;
     familyId?: string;
@@ -51,6 +55,11 @@ export const productsService = {
     return { items, total, take, skip };
   },
 
+  /**
+   * Obtiene un producto por id.
+   *
+   * @throws {NotFoundError} Si no existe.
+   */
   async getById(id: string) {
     const product = await prisma.product.findUnique({
       where: { id },
@@ -60,6 +69,7 @@ export const productsService = {
     return product;
   },
 
+  /** Crea un producto; precios y stock en cero si no se envían. */
   async create(data: {
     code: string;
     description: string;
@@ -91,6 +101,11 @@ export const productsService = {
     });
   },
 
+  /**
+   * Actualización parcial de un producto.
+   *
+   * @throws {NotFoundError} Si no existe.
+   */
   async update(
     id: string,
     data: Partial<{

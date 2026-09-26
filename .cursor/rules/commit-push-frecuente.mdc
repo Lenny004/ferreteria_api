@@ -1,0 +1,32 @@
+---
+description: Commitear y hacer push al remoto tras crear archivos o acumular cambios sustanciales
+alwaysApply: true
+---
+
+# Commit y push frecuentes
+
+En este workspace, **no acumular trabajo solo en local**. Tras crear archivos nuevos o escribir/editar código de forma sustancial, subir a la rama remota actual.
+
+## Cuándo hacerlo (sin que el usuario lo pida de nuevo)
+
+Haz `add` → `commit` → `push` cuando ocurra cualquiera de esto:
+
+- Se creó uno o más archivos nuevos relevantes (código, migraciones, docs del proyecto).
+- Se terminó una tarea lógica acotada (feature, fix, endpoint, migración).
+- Hubo un bloque grande de cambios (~varios archivos o >~50 líneas netas) aunque la tarea siga.
+- Antes de cambiar de tema o de repo en la misma sesión.
+
+## Cómo
+
+1. Trabajar en la rama actual de `ferreteria_backend`.
+2. `git status` + `git diff` para revisar; no incluir secretos (`.env`, credenciales).
+3. Commit con mensaje al estilo del repo (emoji + verbo en español).
+4. `git push -u origin HEAD` si la rama no tiene upstream; si no, `git push`.
+5. Informar al usuario la rama y un resumen breve del commit.
+
+## Excepciones
+
+- El usuario dice explícitamente **no** commitear / no pushear.
+- Cambios a medias que rompen el build a propósito (entonces avisar y esperar).
+- Archivos generados/ruido (`bin/`, `obj/`, logs) — no subirlos.
+---

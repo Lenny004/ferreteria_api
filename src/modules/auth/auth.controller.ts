@@ -1,3 +1,7 @@
+/**
+ * Handlers HTTP de autenticación admin (`/api/v1/auth`).
+ * Valida entrada con Zod y delega en `authService`.
+ */
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
@@ -13,6 +17,7 @@ const loginSchema = z.object({
   path: ["login"],
 });
 
+/** POST `/login` — Autentica WebUser y emite JWT (rate limit: 10/15 min por IP). */
 export async function login(req: Request, res: Response, next: NextFunction) {
   try {
     const body = loginSchema.parse(req.body);
@@ -24,6 +29,7 @@ export async function login(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** GET `/me` — Perfil del usuario autenticado (requiere Bearer JWT admin). */
 export async function me(req: Request, res: Response, next: NextFunction) {
   try {
     const userId = req.user!.userId;
@@ -39,6 +45,7 @@ const changePasswordSchema = z.object({
   newPassword: z.string().min(8).max(128),
 });
 
+/** POST `/change-password` — Cambia contraseña del usuario autenticado. */
 export async function changePassword(req: Request, res: Response, next: NextFunction) {
   try {
     const body = changePasswordSchema.parse(req.body);
@@ -62,6 +69,7 @@ const resetPasswordSchema = z.object({
   newPassword: z.string().min(8).max(128),
 });
 
+/** POST `/forgot-password` — Solicita restablecimiento (respuesta genérica; rate limit 8/15 min). */
 export async function forgotPassword(req: Request, res: Response, next: NextFunction) {
   try {
     const body = forgotPasswordSchema.parse(req.body);
@@ -71,6 +79,7 @@ export async function forgotPassword(req: Request, res: Response, next: NextFunc
   }
 }
 
+/** POST `/reset-password` — Aplica nueva contraseña con token de recuperación (1 h de validez). */
 export async function resetPassword(req: Request, res: Response, next: NextFunction) {
   try {
     const body = resetPasswordSchema.parse(req.body);

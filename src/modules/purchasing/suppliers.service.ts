@@ -1,11 +1,25 @@
+/**
+ * Servicio de proveedores para órdenes de compra y libros fiscales.
+ */
+
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { NotFoundError } from "../../shared/errors.js";
 
 export const suppliersService = {
-  async list(params: { q?: string; take?: number; skip?: number; activeOnly?: boolean }) {
+  /** Lista proveedores; por defecto solo activos (`activeOnly !== false`). */
+  async list(params: {
+    q?: string;
+    take?: number;
+    skip?: number;
+    activeOnly?: boolean;
+    country?: string;
+    withCredit?: boolean;
+  }) {
     const where: Prisma.SupplierWhereInput = {};
     if (params.activeOnly !== false) where.isActive = true;
+    if (params.country) where.country = params.country;
+    if (params.withCredit === true) where.creditDays = { gt: 0 };
     if (params.q) {
       where.OR = [
         { name: { contains: params.q, mode: "insensitive" } },
@@ -24,12 +38,14 @@ export const suppliersService = {
     return { items, total, take, skip };
   },
 
+  /** Obtiene un proveedor por ID. */
   async getById(id: string) {
     const supplier = await prisma.supplier.findUnique({ where: { id } });
     if (!supplier) throw new NotFoundError("Proveedor no encontrado");
     return supplier;
   },
 
+  /** Crea proveedor; país por defecto `SV`. */
   async create(data: {
     name: string;
     tradeName?: string | null;
@@ -64,6 +80,7 @@ export const suppliersService = {
     });
   },
 
+  /** Actualiza datos del proveedor o su estado activo. */
   async update(
     id: string,
     data: Partial<{

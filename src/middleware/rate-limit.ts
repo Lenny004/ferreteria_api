@@ -4,7 +4,7 @@
 
 import rateLimit from "express-rate-limit";
 
-/** POST /auth/login — 10 intentos / 15 min por IP. */
+/** POST `/auth/login` — 10 intentos / 15 min por IP. */
 export const loginRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10,
@@ -17,7 +17,7 @@ export const loginRateLimiter = rateLimit({
   },
 });
 
-/** Limita spam del formulario Contáctanos (por IP). */
+/** POST `/contact-messages` — 5 envíos / 15 min por IP. */
 export const contactRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 5,
@@ -30,7 +30,7 @@ export const contactRateLimiter = rateLimit({
   },
 });
 
-/** Limita solicitudes de recuperación de contraseña. */
+/** POST `/forgot-password` (admin y tienda) — 8 intentos / 15 min por IP. */
 export const forgotPasswordRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 8,

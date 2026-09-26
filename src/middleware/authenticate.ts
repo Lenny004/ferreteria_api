@@ -1,14 +1,20 @@
+/**
+ * Middleware de autenticación JWT para el panel administrativo.
+ * Rechaza tokens con role SHOP (reservados a la tienda en línea).
+ */
 import type { Request, Response, NextFunction } from "express";
 import { verifyAccessToken } from "../shared/jwt.js";
 
 declare global {
   namespace Express {
     interface Request {
+      /** Usuario autenticado extraído del JWT (userId + role). */
       user?: { userId: string; role: string };
     }
   }
 }
 
+/** Valida Bearer JWT y adjunta `req.user`; 401 si falta o es inválido, 403 si role es SHOP. */
 export function authenticate(req: Request, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
 

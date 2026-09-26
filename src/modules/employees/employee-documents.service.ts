@@ -1,6 +1,10 @@
+/**
+ * Documentos de empleados (`hr.EmployeeDocuments`) vinculados al catálogo de tipos requeridos.
+ */
 import { prisma } from "../../lib/prisma.js";
 import { NotFoundError } from "../../shared/errors.js";
 
+/** Estados de cumplimiento de un documento. */
 export const DOCUMENT_STATUSES = ["PENDIENTE", "ENTREGADO", "VENCIDO", "NO_APLICA"] as const;
 export type DocumentStatus = (typeof DOCUMENT_STATUSES)[number];
 
@@ -45,6 +49,7 @@ async function assertDocTypeExists(docTypeId: string) {
 }
 
 export const employeeDocumentsService = {
+  /** Lista documentos activos del empleado, más recientes primero. */
   async list(employeeId: string) {
     await assertEmployeeExists(employeeId);
     return prisma.employeeDocument.findMany({
@@ -54,6 +59,7 @@ export const employeeDocumentsService = {
     });
   },
 
+  /** Crea un documento; estado `PENDIENTE` por defecto. */
   async create(
     employeeId: string,
     data: {
@@ -84,6 +90,12 @@ export const employeeDocumentsService = {
     });
   },
 
+  /**
+   * Actualización parcial de un documento.
+   * Fechas nulas en el payload borran el valor almacenado.
+   *
+   * @throws {NotFoundError} Si el empleado o el documento no existen.
+   */
   async update(
     employeeId: string,
     id: string,

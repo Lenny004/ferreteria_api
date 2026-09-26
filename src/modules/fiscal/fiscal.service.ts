@@ -1,8 +1,14 @@
+/**
+ * Servicio fiscal: libros de IVA (ventas CF/CCF y compras) y consulta de DTE emitidos.
+ * Los libros se generan desde DTE de venta y órdenes de compra recibidas.
+ */
+
 import { Prisma } from "@prisma/client";
 import ExcelJS from "exceljs";
 import { prisma } from "../../lib/prisma.js";
 import { BadRequestError, NotFoundError } from "../../shared/errors.js";
 
+/** Tipos de libro IVA soportados. */
 export const IVA_REPORT_TYPES = ["VENTAS_CF", "VENTAS_CCF", "COMPRAS"] as const;
 export type IvaReportType = (typeof IVA_REPORT_TYPES)[number];
 
@@ -16,12 +22,14 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** Rango [inicio, fin) del mes calendario en UTC. */
 function monthRange(year: number, month: number): { start: Date; end: Date } {
   const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
   const end = new Date(Date.UTC(year, month, 1, 0, 0, 0));
   return { start, end };
 }
 
+/** Línea de detalle en un libro IVA. */
 export type IvaLine = {
   date: string;
   documentNumber: string;
@@ -35,6 +43,7 @@ export type IvaLine = {
   sourceId: string;
 };
 
+/** Instantánea calculada de un libro IVA antes de persistir. */
 export type IvaBookSnapshot = {
   reportType: IvaReportType;
   year: number;
@@ -46,6 +55,10 @@ export type IvaBookSnapshot = {
   lines: IvaLine[];
 };
 
+/**
+ * Libro de ventas (CF o CCF) desde DTE emitidos del mes.
+ * CF → `dteType` 01; CCF → `dteType` 03. Excluye DTE con `mhStatus = RECHAZADO`.
+ */
 async function buildVentasBook(
   year: number,
   month: number,
@@ -98,6 +111,10 @@ async function buildVentasBook(
   };
 }
 
+/**
+ * Libro de compras desde OC `RECIBIDA` con `receivedAt` en el mes.
+ * Asume gravado completo: `totalExenta = 0`, `totalGravada = subtotal`, `totalIva = taxAmount`.
+ */
 async function buildComprasBook(year: number, month: number): Promise<IvaBookSnapshot> {
   const { start, end } = monthRange(year, month);
 
@@ -142,6 +159,9 @@ async function buildComprasBook(year: number, month: number): Promise<IvaBookSna
   };
 }
 
+/**
+ * Construye la instantánea en vivo de un libro IVA para año/mes/tipo.
+ */
 export async function buildIvaBook(
   year: number,
   month: number,
@@ -184,6 +204,7 @@ function mapReport(row: {
 }
 
 export const fiscalService = {
+  /** Lista libros IVA guardados, filtrables por año y mes. */
   async listReports(params: { year?: number; month?: number } = {}) {
     const where: Prisma.IvaReportWhereInput = {};
     if (params.year !== undefined) where.year = params.year;
@@ -196,6 +217,10 @@ export const fiscalService = {
     return rows.map(mapReport);
   },
 
+  /**
+   * Vista del período: libros guardados + vista previa en vivo por tipo.
+   * `balanced`: totales guardados coinciden con el cálculo actual (DTE/OC).
+   */
   async getPeriod(year: number, month: number) {
     const reports = await this.listReports({ year, month });
     const previews = await Promise.all(
@@ -222,6 +247,7 @@ export const fiscalService = {
     return { year, month, reports, previews };
   },
 
+  /** Detalle de un libro guardado con líneas en vivo y flag de cuadre. */
   async getReportDetail(id: string) {
     const report = await prisma.ivaReport.findUnique({ where: { id } });
     if (!report) throw new NotFoundError("Libro IVA no encontrado");
@@ -246,6 +272,10 @@ export const fiscalService = {
     };
   },
 
+  /**
+   * Genera o actualiza borrador de libro IVA para año/mes/tipo.
+   * No permite regenerar libros `CERRADO`.
+   */
   async generate(
     input: { year: number; month: number; reportType: IvaReportType; notes?: string },
     userId?: string,
@@ -290,6 +320,10 @@ export const fiscalService = {
     };
   },
 
+  /**
+   * Cierra un libro IVA tras verificar cuadre con datos actuales.
+   * Rechaza si los totales del borrador no coinciden con el cálculo en vivo.
+   */
   async close(id: string) {
     const report = await prisma.ivaReport.findUnique({ where: { id } });
     if (!report) throw new NotFoundError("Libro IVA no encontrado");
@@ -323,6 +357,7 @@ export const fiscalService = {
     return mapReport(row);
   },
 
+  /** Exporta el libro IVA a Excel (.xlsx) con líneas y fila de totales. */
   async exportExcel(id: string): Promise<{ buffer: Buffer; filename: string }> {
     const detail = await this.getReportDetail(id);
     const wb = new ExcelJS.Workbook();
@@ -357,6 +392,9 @@ export const fiscalService = {
     return { buffer, filename };
   },
 
+  /**
+   * Lista DTE emitidos con filtros; no expone `jsonPayload` ni datos sensibles.
+   */
   async listDte(params: {
     year?: number;
     month?: number;

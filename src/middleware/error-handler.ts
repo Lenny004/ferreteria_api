@@ -1,7 +1,12 @@
+/**
+ * Manejador global de errores Express (último middleware en la cadena).
+ * Mapea ZodError → 400, AppError → statusCode del error, resto → 500.
+ */
 import type { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
 import { AppError } from "../shared/errors.js";
 
+/** Normaliza errores de validación, negocio y no controlados a respuestas JSON uniformes. */
 export function errorHandler(
   err: unknown,
   _req: Request,

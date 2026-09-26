@@ -1,3 +1,7 @@
+/**
+ * Envío de correo vía SMTP (nodemailer) y plantillas transaccionales mínimas.
+ * Si SMTP no está configurado, registra en consola y devuelve `{ sent: false }`.
+ */
 import nodemailer from "nodemailer";
 
 type SendMailInput = {
@@ -11,10 +15,7 @@ function smtpConfigured(): boolean {
   return Boolean(process.env.SMTP_HOST?.trim() && process.env.SMTP_FROM?.trim());
 }
 
-/**
- * Envía correo si hay SMTP configurado; si no, solo registra en consola (dev).
- * Nunca lanza por fallo de transporte en producción no crítica — el caller decide.
- */
+/** Envía correo si hay SMTP; en dev sin SMTP solo loguea y no lanza. */
 export async function sendMail(input: SendMailInput): Promise<{ sent: boolean }> {
   if (!smtpConfigured()) {
     console.info("[mail] SMTP no configurado — mensaje no enviado", {
@@ -45,6 +46,7 @@ export async function sendMail(input: SendMailInput): Promise<{ sent: boolean }>
   return { sent: true };
 }
 
+/** Arma asunto y cuerpo del enlace de restablecimiento (válido 1 h; URL según audiencia). */
 export function buildPasswordResetEmail(params: {
   audience: "WEB_USER" | "SHOP_CUSTOMER";
   resetToken: string;

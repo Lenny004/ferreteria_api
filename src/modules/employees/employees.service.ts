@@ -1,3 +1,6 @@
+/**
+ * CRUD de empleados (`hr.Employees`): datos laborales, permisos de caja y PIN.
+ */
 import bcrypt from "bcryptjs";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
@@ -29,9 +32,21 @@ const employeePublicSelect = {
 } as const;
 
 export const employeesService = {
-  async list(params: { q?: string; isActive?: boolean; take?: number; skip?: number }) {
+  /** Lista empleados con paginación; `take` máximo 200. No expone `pinHash`. */
+  async list(params: {
+    q?: string;
+    isActive?: boolean;
+    departmentId?: string;
+    canSell?: boolean;
+    canCashier?: boolean;
+    take?: number;
+    skip?: number;
+  }) {
     const where: Prisma.EmployeeWhereInput = {};
     if (params.isActive !== undefined) where.isActive = params.isActive;
+    if (params.departmentId) where.departmentId = params.departmentId;
+    if (params.canSell !== undefined) where.canSell = params.canSell;
+    if (params.canCashier !== undefined) where.canCashier = params.canCashier;
     if (params.q) {
       where.OR = [
         { firstName: { contains: params.q, mode: "insensitive" } },
@@ -58,6 +73,11 @@ export const employeesService = {
     return { items, total, take, skip };
   },
 
+  /**
+   * Obtiene un empleado por id.
+   *
+   * @throws {NotFoundError} Si no existe.
+   */
   async getById(id: string) {
     const employee = await prisma.employee.findUnique({
       where: { id },
@@ -67,6 +87,10 @@ export const employeesService = {
     return employee;
   },
 
+  /**
+   * Crea un empleado.
+   * Contrato `PLAZO_FIJO` y salario `MENSUAL` por defecto; hashea PIN si se envía.
+   */
   async create(data: {
     firstName: string;
     lastName: string;
@@ -111,6 +135,13 @@ export const employeesService = {
     return created;
   },
 
+  /**
+   * Actualización parcial de un empleado.
+   * Para cambiar PIN debe enviarse un valor no vacío; omitir el campo lo deja intacto.
+   *
+   * @throws {NotFoundError} Si no existe.
+   * @throws {BadRequestError} Si se intenta borrar el PIN enviando null o cadena vacía.
+   */
   async update(
     id: string,
     data: Partial<{

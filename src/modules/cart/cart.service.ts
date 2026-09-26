@@ -1,3 +1,8 @@
+/**
+ * Servicio del carrito de compras de la tienda en línea.
+ * Valida stock disponible antes de agregar o actualizar cantidades.
+ */
+
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { BadRequestError, NotFoundError } from "../../shared/errors.js";
@@ -8,15 +13,23 @@ const cartInclude = {
       id: true,
       code: true,
       description: true,
+      shortDescription: true,
+      brand: true,
+      imageUrl: true,
       salePrice: true,
       currentStock: true,
       isActive: true,
+      isWebVisible: true,
       measurementType: { select: { unitLabel: true } },
     },
   },
 } as const;
 
 export const cartService = {
+  /**
+   * Lista ítems del carrito con subtotal.
+   * `subtotal` = Σ (`salePrice` × `quantity`) por línea.
+   */
   async list(shopCustomerId: string) {
     const items = await prisma.shopCartItem.findMany({
       where: { shopCustomerId },
@@ -31,12 +44,13 @@ export const cartService = {
     return { items, subtotal, itemCount: items.length };
   },
 
+  /** Agrega o actualiza cantidad de un producto en el carrito. */
   async upsert(shopCustomerId: string, productId: string, quantity: number) {
     if (quantity <= 0) {
       throw new BadRequestError("La cantidad debe ser mayor a cero");
     }
     const product = await prisma.product.findFirst({
-      where: { id: productId, isActive: true },
+      where: { id: productId, isActive: true, isWebVisible: true },
     });
     if (!product) throw new NotFoundError("Producto no encontrado");
     if (Number(product.currentStock) < quantity) {
@@ -60,6 +74,7 @@ export const cartService = {
     });
   },
 
+  /** Elimina un producto del carrito. */
   async remove(shopCustomerId: string, productId: string) {
     const existing = await prisma.shopCartItem.findUnique({
       where: { shopCustomerId_productId: { shopCustomerId, productId } },
@@ -69,6 +84,7 @@ export const cartService = {
     return { removed: true };
   },
 
+  /** Vacía el carrito del cliente. */
   async clear(shopCustomerId: string) {
     await prisma.shopCartItem.deleteMany({ where: { shopCustomerId } });
     return { cleared: true };

@@ -1,3 +1,8 @@
+/**
+ * Rutas REST de bancos (`/api/v1/banks`).
+ *
+ * Lectura: ADMIN, ACCOUNTANT, OWNER. Alta/edición: ADMIN, OWNER.
+ */
 import { Router } from "express";
 import { authenticate } from "../../middleware/authenticate.js";
 import { requireRole } from "../../middleware/require-role.js";

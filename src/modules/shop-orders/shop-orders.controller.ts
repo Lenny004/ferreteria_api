@@ -1,11 +1,31 @@
+/**
+ * Capa HTTP de pedidos de tienda: checkout cliente y gestión admin.
+ */
+
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
 import { shopOrdersService } from "./shop-orders.service.js";
 
-const checkoutSchema = z.object({
-  customerNotes: z.string().max(2000).nullable().optional(),
-});
+const checkoutSchema = z
+  .object({
+    customerNotes: z.string().max(2000).nullable().optional(),
+    deliveryType: z.enum(["RETIRO_TIENDA", "ENVIO"]).optional(),
+    shippingAddress: z.string().max(500).optional(),
+    paymentMethod: z
+      .enum(["EFECTIVO_RETIRO", "TRANSFERENCIA", "TARJETA", "CONTRA_ENTREGA"])
+      .optional(),
+  })
+  .superRefine((data, ctx) => {
+    const deliveryType = data.deliveryType ?? "RETIRO_TIENDA";
+    if (deliveryType === "ENVIO" && !data.shippingAddress?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "shippingAddress es requerido cuando deliveryType es ENVIO",
+        path: ["shippingAddress"],
+      });
+    }
+  });
 
 const adminListSchema = z.object({
   status: z
@@ -23,12 +43,13 @@ const adminUpdateSchema = z.object({
   adminNotes: z.string().max(2000).nullable().optional(),
 });
 
+/** POST `/checkout` — convierte carrito en pedido (cliente SHOP). */
 export async function checkout(req: Request, res: Response, next: NextFunction) {
   try {
     const body = checkoutSchema.parse(req.body ?? {});
     jsonSuccess(
       res,
-      await shopOrdersService.checkout(req.user!.userId, body.customerNotes),
+      await shopOrdersService.checkout(req.user!.userId, body),
       201,
     );
   } catch (err) {
@@ -36,6 +57,7 @@ export async function checkout(req: Request, res: Response, next: NextFunction) 
   }
 }
 
+/** GET `/` — pedidos del cliente autenticado. */
 export async function listMine(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await shopOrdersService.listMine(req.user!.userId));
@@ -44,6 +66,7 @@ export async function listMine(req: Request, res: Response, next: NextFunction) 
   }
 }
 
+/** GET `/:id` — detalle de pedido propio. */
 export async function getMine(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(
@@ -55,6 +78,7 @@ export async function getMine(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** GET `/` — lista pedidos (admin). */
 export async function listAdmin(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await shopOrdersService.listAdmin(adminListSchema.parse(req.query)));
@@ -63,6 +87,7 @@ export async function listAdmin(req: Request, res: Response, next: NextFunction)
   }
 }
 
+/** PATCH `/:id` — actualiza estado o notas (admin). */
 export async function updateAdmin(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(

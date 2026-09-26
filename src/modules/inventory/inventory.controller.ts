@@ -1,3 +1,7 @@
+/**
+ * Capa HTTP de inventario: movimientos, kardex, alertas y valuación.
+ */
+
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
@@ -43,6 +47,7 @@ const importSchema = z.object({
     .max(500),
 });
 
+/** GET `/movements` — lista movimientos con filtros y paginación. */
 export async function listMovements(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await inventoryService.listMovements(listQuerySchema.parse(req.query)));
@@ -51,6 +56,7 @@ export async function listMovements(req: Request, res: Response, next: NextFunct
   }
 }
 
+/** POST `/movements` — registra entrada o ajuste de inventario. */
 export async function createMovement(req: Request, res: Response, next: NextFunction) {
   try {
     const body = createSchema.parse(req.body);
@@ -60,6 +66,7 @@ export async function createMovement(req: Request, res: Response, next: NextFunc
   }
 }
 
+/** GET `/kardex/:productId` — historial y saldo valorado de un producto. */
 export async function kardex(req: Request, res: Response, next: NextFunction) {
   try {
     const query = z
@@ -74,6 +81,7 @@ export async function kardex(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** GET `/alerts` — alertas de stock bajo mínimo. */
 export async function listAlerts(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await inventoryService.listAlerts(alertsQuerySchema.parse(req.query)));
@@ -82,6 +90,7 @@ export async function listAlerts(req: Request, res: Response, next: NextFunction
   }
 }
 
+/** PATCH `/alerts/:id/resolve` — marca alerta como resuelta. */
 export async function resolveAlert(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await inventoryService.resolveAlert(req.params.id as string));
@@ -90,6 +99,7 @@ export async function resolveAlert(req: Request, res: Response, next: NextFuncti
   }
 }
 
+/** POST `/import` — importación masiva de movimientos (JSON). */
 export async function importMovements(req: Request, res: Response, next: NextFunction) {
   try {
     const body = importSchema.parse(req.body);
@@ -99,6 +109,7 @@ export async function importMovements(req: Request, res: Response, next: NextFun
   }
 }
 
+/** GET `/valuation` — valuación de inventario por producto y total. */
 export async function valuation(req: Request, res: Response, next: NextFunction) {
   try {
     const query = z

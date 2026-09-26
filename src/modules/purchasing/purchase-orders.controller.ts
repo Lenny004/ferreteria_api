@@ -1,3 +1,7 @@
+/**
+ * Capa HTTP de órdenes de compra: CRUD y transiciones de estado.
+ */
+
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
@@ -44,6 +48,7 @@ const receiveSchema = z.object({
   receivedById: z.string().uuid().nullable().optional(),
 });
 
+/** GET `/` — lista órdenes de compra. */
 export async function list(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await purchaseOrdersService.list(listQuerySchema.parse(req.query)));
@@ -52,6 +57,7 @@ export async function list(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** GET `/:id` — detalle de una orden de compra. */
 export async function getById(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await purchaseOrdersService.getById(req.params.id as string));
@@ -60,6 +66,7 @@ export async function getById(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** POST `/` — crea orden en estado BORRADOR. */
 export async function create(req: Request, res: Response, next: NextFunction) {
   try {
     const body = createSchema.parse(req.body);
@@ -69,6 +76,7 @@ export async function create(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** PATCH `/:id` — actualiza orden en BORRADOR. */
 export async function update(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(
@@ -80,6 +88,7 @@ export async function update(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** POST `/:id/confirm` — confirma orden (BORRADOR → CONFIRMADA). */
 export async function confirm(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await purchaseOrdersService.confirm(req.params.id as string));
@@ -88,6 +97,7 @@ export async function confirm(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** POST `/:id/cancel` — cancela orden no recibida. */
 export async function cancel(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await purchaseOrdersService.cancel(req.params.id as string));
@@ -96,6 +106,7 @@ export async function cancel(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+/** POST `/:id/receive` — recibe mercadería y actualiza inventario. */
 export async function receive(req: Request, res: Response, next: NextFunction) {
   try {
     const body = receiveSchema.parse(req.body ?? {});

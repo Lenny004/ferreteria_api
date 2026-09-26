@@ -1,9 +1,15 @@
+/**
+ * Servicio de configuración clave-valor (pública y administración).
+ * Claves legales (`TermsOfService`, etc.) se marcan públicas por defecto al crear.
+ */
+
 import { prisma } from "../../lib/prisma.js";
 import { NotFoundError } from "../../shared/errors.js";
 
 const LEGAL_KEYS = ["TermsOfService", "PrivacyPolicy", "BusinessName", "ContactEmail"] as const;
 
 export const settingsService = {
+  /** Lista ajustes marcados como públicos (tienda y legal). */
   async listPublic() {
     return prisma.setting.findMany({
       where: { isPublic: true },
@@ -12,6 +18,7 @@ export const settingsService = {
     });
   },
 
+  /** Obtiene un ajuste público por clave. */
   async getPublicByKey(key: string) {
     const setting = await prisma.setting.findFirst({
       where: { key, isPublic: true },
@@ -21,6 +28,7 @@ export const settingsService = {
     return setting;
   },
 
+  /** Lista todos los ajustes para administración (con búsqueda opcional). */
   async listAdmin(params?: { q?: string }) {
     return prisma.setting.findMany({
       where: params?.q
@@ -35,6 +43,7 @@ export const settingsService = {
     });
   },
 
+  /** Crea o actualiza un ajuste por clave. */
   async upsert(
     key: string,
     data: { value: string; description?: string | null; isPublic?: boolean },

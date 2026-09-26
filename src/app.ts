@@ -1,3 +1,6 @@
+/**
+ * Aplicación Express: middlewares globales, montaje de rutas y error handler final.
+ */
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -62,6 +65,7 @@ function resolveCorsOrigins(): string[] {
 
 const app = express();
 
+// Orden: proxy → seguridad (helmet) → CORS → body parser → rutas → error handler
 app.set("trust proxy", 1);
 app.use(helmet());
 app.use(
@@ -107,6 +111,7 @@ app.use("/api/v1/fiscal", fiscalRoutes);
 app.use("/api/v1/dashboard", dashboardRoutes);
 app.use("/api/v1/holidays", holidaysRoutes);
 
+// Último middleware: captura errores de controllers y middlewares anteriores
 app.use(errorHandler);
 
 export default app;
