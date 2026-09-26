@@ -4,6 +4,7 @@
  */
 import type { Request, Response, NextFunction } from "express";
 import { verifyAccessToken } from "../shared/jwt.js";
+import { isValidCsrfToken } from "../shared/cookies.js";
 
 declare global {
   namespace Express {
@@ -18,7 +19,11 @@ declare global {
 export function authenticate(req: Request, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
 
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : undefined;
+  const cookieToken = req.cookies?.fer_access as string | undefined;
+  const token = bearerToken ?? cookieToken;
+
+  if (!token) {
     res.status(401).json({
       success: false,
       error: "UNAUTHORIZED",
@@ -26,8 +31,6 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
     });
     return;
   }
-
-  const token = authHeader.slice("Bearer ".length).trim();
 
   try {
     const decoded = verifyAccessToken(token);
@@ -38,6 +41,12 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
         message: "Token de tienda no válido para el panel administrativo",
       });
       return;
+    }
+    if (!bearerToken && !["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+      if (!isValidCsrfToken(req.cookies?.fer_csrf, req.header("X-CSRF-Token"), decoded.userId)) {
+        res.status(403).json({ success: false, error: "CSRF_INVALID", message: "Token CSRF inválido" });
+        return;
+      }
     }
     req.user = { userId: decoded.userId, role: decoded.role };
     next();

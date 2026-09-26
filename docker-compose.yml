@@ -15,8 +15,7 @@ services:
       # Scripts de inicializacion (solo se ejecutan si el volumen esta vacio).
       # 01: extensiones, esquemas, funcion de timestamp y permisos.
       - ./database/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
-      # 02: esquema completo de la ferreteria (tablas, triggers y catalogo inicial).
-      - ../erp_ferreteria/Ferreteria.PuntoVenta/Squema.sql:/docker-entrypoint-initdb.d/02_schema.sql:ro
+      # Las tablas se crean con prisma migrate deploy; no montar el esquema legacy del POS.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ferreteria_user -d ferreteria"]
       interval: 10s

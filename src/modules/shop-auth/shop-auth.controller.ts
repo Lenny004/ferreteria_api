@@ -6,42 +6,45 @@ import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
 import { shopAuthService } from "./shop-auth.service.js";
+import { setAuthCookies } from "../../shared/cookies.js";
 
 const registerSchema = z.object({
   email: z.string().email().max(150),
   password: z.string().min(8).max(128),
   fullName: z.string().min(2).max(200),
   phone: z.string().max(30).nullable().optional(),
-});
+}).strict();
 
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
-});
+}).strict();
 
 const profileSchema = z.object({
   fullName: z.string().min(2).max(200).optional(),
   phone: z.string().max(30).nullable().optional(),
-});
+}).strict();
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
   newPassword: z.string().min(8).max(128),
-});
+}).strict();
 
 const forgotSchema = z.object({
   email: z.string().email(),
-});
+}).strict();
 
 const resetSchema = z.object({
   token: z.string().min(20),
   newPassword: z.string().min(8).max(128),
-});
+}).strict();
 
 /** POST `/register` — registro de cliente tienda. */
 export async function register(req: Request, res: Response, next: NextFunction) {
   try {
-    jsonSuccess(res, await shopAuthService.register(registerSchema.parse(req.body)), 201);
+    const result = await shopAuthService.register(registerSchema.parse(req.body));
+    setAuthCookies(res, result.accessToken);
+    jsonSuccess(res, result, 201);
   } catch (err) {
     next(err);
   }
@@ -51,7 +54,9 @@ export async function register(req: Request, res: Response, next: NextFunction) 
 export async function login(req: Request, res: Response, next: NextFunction) {
   try {
     const body = loginSchema.parse(req.body);
-    jsonSuccess(res, await shopAuthService.login(body.email, body.password));
+    const result = await shopAuthService.login(body.email, body.password);
+    setAuthCookies(res, result.accessToken);
+    jsonSuccess(res, result);
   } catch (err) {
     next(err);
   }
