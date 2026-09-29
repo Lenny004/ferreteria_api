@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SALE_UNITS, saleUnitValuesSql } from "../prisma/seed.js";
+import { SALE_UNITS, saleUnitValuesSql, shouldSeedDemoAccountant } from "../prisma/seed.js";
 
 describe("catálogo de unidades de venta", () => {
   it("mantiene las 11 unidades del POS con códigos únicos", () => {
@@ -27,5 +27,14 @@ describe("catálogo de unidades de venta", () => {
     expect(sql.split("\n")).toHaveLength(11);
     expect(sql).toContain("('UNIDAD', 'Unidad', 'u')");
     expect(sql).toContain("('JUEGO', 'Juego', 'jgo')");
+  });
+
+  it.each([
+    ["production", false],
+    ["development", true],
+    ["test", true],
+    [undefined, true],
+  ] as const)("decide el seed del contador para NODE_ENV=%s", (nodeEnv, expected) => {
+    expect(shouldSeedDemoAccountant({ NODE_ENV: nodeEnv })).toBe(expected);
   });
 });
