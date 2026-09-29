@@ -5,9 +5,9 @@
  * - MeasurementType / Family / Subfamily / Product (esquema public)
  * - Department / Position / Employee (esquema hr)
  * - IsrBracket 2026 mensual/quincenal (esquema hr, motor de planilla)
- * - Setting + WebUser admin (esquema system)
+ * - Setting + WebUser admin y contador (esquema system)
  *
- * WebUser demo: admin / admin123 (solo desarrollo).
+ * Usuarios WebUser demo: admin / admin123 y contador / contador123 (solo desarrollo).
  */
 
 import { PrismaClient } from '@prisma/client';
@@ -38,6 +38,16 @@ function sqlText(value: string): string {
 /** Filas VALUES generadas desde {@link SALE_UNITS} para que el catálogo tenga una sola fuente. */
 export function saleUnitValuesSql(): string {
   return SALE_UNITS.map((unit) => `(${sqlText(unit.code)}, ${sqlText(unit.name)}, ${sqlText(unit.abbreviation)})`).join(",\n      ");
+}
+
+/**
+ * Determina si el usuario WebUser contador debe incluirse en el seed.
+ *
+ * @param env - Variables de entorno a evaluar.
+ * @returns `false` únicamente cuando el entorno es producción.
+ */
+export function shouldSeedDemoAccountant(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.NODE_ENV !== 'production';
 }
 
 /**
@@ -386,6 +396,30 @@ async function seedDemoData(): Promise<void> {
       "IsActive" = TRUE,
       "UpdatedAt" = NOW();
     END $$;
+  `);
+
+  if (!shouldSeedDemoAccountant()) {
+    console.warn('[seed] Se omitió el usuario demo contador porque NODE_ENV=production.');
+    return;
+  }
+
+  await prisma.$executeRawUnsafe(`
+    INSERT INTO system."WebUsers" ("Username", "Email", "PasswordHash", "Role", "EmployeeId", "IsActive")
+    VALUES (
+      'contador',
+      'contador@ferreteria.local',
+      crypt('contador123', gen_salt('bf', 12)),
+      'ACCOUNTANT',
+      NULL,
+      TRUE
+    )
+    ON CONFLICT ("Username") DO UPDATE SET
+      "PasswordHash" = EXCLUDED."PasswordHash",
+      "Email" = EXCLUDED."Email",
+      "Role" = 'ACCOUNTANT',
+      "EmployeeId" = NULL,
+      "IsActive" = TRUE,
+      "UpdatedAt" = NOW();
   `);
 }
 

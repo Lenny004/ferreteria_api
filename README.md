@@ -70,6 +70,7 @@ La caja **no** consume esta API en el MVP inicial; escribe directamente en Postg
 | PostgreSQL | 14+ (17 en Docker local) | Base de datos |
 | Zod | Última | Validación de entradas HTTP |
 | JWT + bcrypt | — | Autenticación admin |
+| Nodemailer | 10 | SMTP transaccional (requiere Node.js >= 20) |
 | ExcelJS + PDFKit | — | Exportes planilla (portados de Beraka) |
 | TypeScript | 5.x | Lenguaje |
 
@@ -341,6 +342,15 @@ npm run dev
 
 Cambiar PINs antes de producción. La caja WPF valida contra `hr."Employees"."PinHash"`.
 
+### Usuarios web demo (solo desarrollo)
+
+| Usuario | Contraseña | Rol |
+|---|---|---|
+| `admin` | `admin123` | ADMIN |
+| `contador` | `contador123` | ACCOUNTANT |
+
+El usuario `contador` no se siembra cuando `NODE_ENV=production`.
+
 ### Herramientas útiles
 
 ```bash
@@ -366,6 +376,8 @@ npm run docker:reset   # Reiniciar BD local (borra datos)
 | `docker:up` | `docker compose up -d` |
 | `docker:down` | Detiene contenedor |
 | `docker:reset` | Elimina volumen y recrea BD |
+
+ExcelJS usa el override de `uuid` 11.1.1 definido en `package.json` para mantener compatibles los exportes con formato condicional.
 
 ---
 
