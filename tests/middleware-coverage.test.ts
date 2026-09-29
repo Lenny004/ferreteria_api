@@ -8,6 +8,7 @@ import { requireRole } from "../src/middleware/require-role.js";
 import { errorHandler } from "../src/middleware/error-handler.js";
 import { loginRateLimiter } from "../src/middleware/rate-limit.js";
 import { AppError } from "../src/shared/errors.js";
+import { createCsrfToken } from "../src/shared/cookies.js";
 import { ZodError, z } from "zod";
 
 const userId = "550e8400-e29b-41d4-a716-446655440000";
@@ -49,6 +50,40 @@ describe("middleware de seguridad", () => {
     expect(res.statusCode).toBe(403);
     authenticate({ headers: {}, cookies: { fer_access: token }, method: "GET", header: () => undefined } as never, res, next);
     expect(next).toHaveBeenCalled();
+  });
+
+  it("mantiene aisladas las cookies de sesión entre admin y tienda", () => {
+    const shopToken = signAccessToken({ userId, role: "SHOP" });
+    const adminToken = signAccessToken({ userId, role: "ADMIN" });
+    const next = vi.fn();
+    const res = responseMock();
+    authenticate({ headers: {}, cookies: { fer_shop_access: adminToken }, method: "GET", header: () => undefined } as never, res, next);
+    expect(res.statusCode).toBe(401);
+
+    const csrf = createCsrfToken(userId, "shop");
+    authenticateShop({
+      headers: {},
+      cookies: { fer_shop_access: shopToken, fer_shop_csrf: csrf },
+      method: "POST",
+      header: () => undefined,
+    } as never, res, next);
+    expect(res.statusCode).toBe(403);
+
+    authenticateShop({
+      headers: {},
+      cookies: { fer_shop_access: shopToken, fer_shop_csrf: csrf },
+      method: "POST",
+      header: (name: string) => name === "X-CSRF-Token" ? csrf : undefined,
+    } as never, res, next);
+    expect(next).toHaveBeenCalled();
+
+    authenticateShop({
+      headers: {},
+      cookies: { fer_shop_access: shopToken, fer_shop_csrf: createCsrfToken(userId, "admin") },
+      method: "POST",
+      header: (name: string) => name === "X-CSRF-Token" ? createCsrfToken(userId, "admin") : undefined,
+    } as never, res, next);
+    expect(res.statusCode).toBe(403);
   });
 
   it("aplica el middleware SHOP y sus respuestas 401/403", () => {

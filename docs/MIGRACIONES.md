@@ -51,5 +51,5 @@ Reconciliación del schema con la BD del POS (introspección de una BD creada co
 
 ## Pendientes conocidos
 
-- El seed de Prisma no inserta el catálogo de `SaleUnits` que sí insertaba `Squema.sql`: una BD local nueva queda sin unidades de venta hasta que se añadan al seed (no afecta a la BD real, que ya los tiene).
+- El seed de Prisma inserta ahora el catálogo de `SaleUnits` y la presentación base `UNIDAD` de los productos de forma idempotente, alineado con `Squema.sql`.
 - `package.json#prisma` está deprecado para Prisma 7; migrar a `prisma.config.ts` cuando se actualice.

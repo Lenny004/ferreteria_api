@@ -14,6 +14,9 @@ router.post("/register", loginRateLimiter, controller.register);
 router.post("/login", loginRateLimiter, controller.login);
 router.post("/forgot-password", forgotPasswordRateLimiter, controller.forgotPassword);
 router.post("/reset-password", controller.resetPassword);
+// Estas rutas quedan bajo el limitador global montado en `/api/v1`.
+router.post("/logout", controller.logout);
+router.get("/csrf", authenticateShop, controller.csrf);
 
 router.get("/me", authenticateShop, controller.me);
 router.patch("/me", authenticateShop, controller.updateProfile);

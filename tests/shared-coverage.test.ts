@@ -62,6 +62,22 @@ describe("shared: respuestas, cookies, errores y entorno", () => {
     expect(() => accessCookieMaxAge("not-a-jwt")).toThrow();
   });
 
+  it("aísla cookies, path y firma CSRF de la tienda", () => {
+    const token = jwt.sign({ userId, role: "SHOP" }, process.env.JWT_SECRET!, { expiresIn: "1h" });
+    const res = responseMock();
+    const csrfToken = setAuthCookies(res, token, "shop");
+    setCsrfCookie(res, userId, 1000, "shop");
+
+    expect(csrfToken).toMatch(/^[a-f0-9]{64}\.[a-f0-9]{64}$/);
+    expect(res.cookie).toHaveBeenCalledWith("fer_shop_access", token, expect.objectContaining({ path: "/api/v1/shop" }));
+    expect(res.cookie).toHaveBeenCalledWith("fer_shop_csrf", expect.any(String), expect.objectContaining({ path: "/api/v1/shop", httpOnly: false }));
+    expect(isValidCsrfToken(csrfToken, csrfToken, userId, "shop")).toBe(true);
+    expect(isValidCsrfToken(csrfToken, csrfToken, userId, "admin")).toBe(false);
+    clearAuthCookies(res, "shop");
+    expect(res.clearCookie).toHaveBeenCalledWith("fer_shop_access", expect.objectContaining({ path: "/api/v1/shop" }));
+    expect(res.clearCookie).toHaveBeenCalledWith("fer_shop_csrf", expect.objectContaining({ path: "/api/v1/shop" }));
+  });
+
   it("expone la jerarquía de errores de API", () => {
     expect(new AppError("X", "x").statusCode).toBe(500);
     expect(new UnauthorizedError().code).toBe("UNAUTHORIZED");
