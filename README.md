@@ -412,6 +412,22 @@ Alineado a `FERRETERIA_PLAN_FINALIZACION_APP.md`:
 - Las mutaciones autenticadas por cookie requieren `X-CSRF-Token` igual a `fer_csrf`; Bearer no requiere CSRF.
 - Errores: `UNAUTHORIZED` (401), `FORBIDDEN` (403), `CSRF_INVALID` (403), `RATE_LIMITED` (429), `INVALID_JSON` (400), `VALIDATION_ERROR` (400).
 
+### Contrato de autenticación de la tienda
+
+- `POST /api/v1/shop/auth/register` y `POST /api/v1/shop/auth/login`: devuelven `{ accessToken, customer, csrfToken }` y emiten únicamente `fer_shop_access` (`httpOnly`) y `fer_shop_csrf` (legible por JS).
+- Las cookies de tienda usan `Path=/api/v1/shop`, `SameSite` configurable, `Secure` en producción o cuando `COOKIE_SECURE=true`, `Domain` configurable y `Max-Age` igual a la expiración del JWT. No se leen ni sobrescriben `fer_access`/`fer_csrf`.
+- `POST /api/v1/shop/auth/logout`: limpia solo cookies de tienda y devuelve `{ loggedOut: true }`. Puede limpiar cookies caducadas sin sesión válida; si `fer_shop_access` contiene un JWT vigente exige `X-CSRF-Token` válido.
+- `GET /api/v1/shop/auth/csrf`: requiere sesión tienda por Bearer o `fer_shop_access`, rota `fer_shop_csrf` y devuelve `{ csrfToken }`.
+- `GET` autenticado por cookie no requiere CSRF. Las mutaciones autenticadas por cookie sí requieren `X-CSRF-Token` igual a `fer_shop_csrf`; Bearer no requiere CSRF. La firma HMAC usa un dominio distinto (`shop-csrf.`) al administrativo.
+
+### Errores de Prisma
+
+El manejador global traduce errores conocidos sin exponer SQL, stack ni detalles internos:
+
+- `P2002` → `409 CONFLICT`, con los campos de `meta.target` en el mensaje.
+- `P2025` → `404 NOT_FOUND`, registro inexistente.
+- `P2003` en `DELETE` → `409 FOREIGN_KEY_CONFLICT`; en otras operaciones → `400 INVALID_REFERENCE`.
+
 El POS WPF no llama a la API: usa EF Core directo. Bearer se conserva para clientes no navegador, `tools/Ferreteria.Smoke` y scripts futuros.
 
 ## Licencia
