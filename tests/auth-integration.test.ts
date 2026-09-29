@@ -1,6 +1,6 @@
 import request from "supertest";
 import bcrypt from "bcryptjs";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 const userId = "550e8400-e29b-41d4-a716-446655440000";
 const passwordHash = bcrypt.hashSync("password", 4); // coste bajo solo en el fixture: evita timeouts en frio sin cambiar la logica
@@ -36,6 +36,12 @@ vi.mock("../src/lib/mail.js", () => ({
 }));
 
 describe("contrato de autenticación del panel", () => {
+  // Precarga la app (Express + Prisma mockeado) una vez: la primera importación en frío
+  // con cobertura puede superar el timeout por test; los tests siguen midiendo solo la petición.
+  beforeAll(async () => {
+    await import("../src/app.js");
+  }, 30_000);
+
   it("login devuelve cuerpo intacto y cookies fer_access/fer_csrf seguras", async () => {
     const { default: app } = await import("../src/app.js");
     const response = await request(app)

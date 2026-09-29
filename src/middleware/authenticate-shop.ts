@@ -11,7 +11,7 @@ export function authenticateShop(req: Request, res: Response, next: NextFunction
   const authHeader = req.headers.authorization;
 
   const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : undefined;
-  const cookieToken = req.cookies?.fer_access as string | undefined;
+  const cookieToken = req.cookies?.fer_shop_access as string | undefined;
   const token = bearerToken ?? cookieToken;
   if (!token) {
     res.status(401).json({
@@ -33,7 +33,7 @@ export function authenticateShop(req: Request, res: Response, next: NextFunction
       return;
     }
     if (!bearerToken && !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
-        !isValidCsrfToken(req.cookies?.fer_csrf, req.header("X-CSRF-Token"), decoded.userId)) {
+        !isValidCsrfToken(req.cookies?.fer_shop_csrf, req.header("X-CSRF-Token"), decoded.userId, "shop")) {
       res.status(403).json({ success: false, error: "CSRF_INVALID", message: "Token CSRF inválido" });
       return;
     }
