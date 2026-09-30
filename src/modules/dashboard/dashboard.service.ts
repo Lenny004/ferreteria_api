@@ -6,6 +6,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
+import { businessPeriods, dateKeyToDbDate } from "../../shared/business-time.js";
 import { computeSalesSection } from "./net-sales.js";
 import { movementDirection, movementMagnitude } from "../inventory/movement-direction.js";
 import { isAtOrBelowMinimum } from "../inventory/inventory.service.js";
@@ -20,23 +21,6 @@ function toNum(d: Prisma.Decimal | number | string | null | undefined): number {
 /** Redondea a 2 decimales (moneda). */
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
-}
-
-/** Inicio del día en UTC (00:00:00.000). */
-function startOfDayUTC(d: Date): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-}
-
-/** Suma `days` días calendario en UTC. */
-function addDays(d: Date, days: number): Date {
-  const x = new Date(d);
-  x.setUTCDate(x.getUTCDate() + days);
-  return x;
-}
-
-/** Primer instante del mes en UTC. */
-function startOfMonthUTC(d: Date): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
 }
 
 type MovementTodayRow = {
@@ -106,7 +90,7 @@ export const dashboardService = {
    * **Inventario**
    * - `totalValue`: Σ (`currentStock` × `costPrice`) de productos activos.
    * - `belowMin`: productos activos con `currentStock <= minStock`, igual que las alertas abiertas.
-   * - `movementsToday`: movimientos agrupados por tipo en el día UTC actual.
+   * - `movementsToday`: movimientos agrupados por tipo en el día actual del negocio.
    *
    * **Compras**
    * - `pendingOrders`: OC en `BORRADOR` o `CONFIRMADA`.
@@ -117,12 +101,17 @@ export const dashboardService = {
    * - `headcountByContract` / `activeEmployees`: empleados activos por tipo de contrato.
    * - `documentsExpiring30d`: documentos con vencimiento en los próximos 30 días.
    * - `upcomingPayroll`: hasta 5 corridas en `EN_REVISION` o `APROBADA`.
+   *
+   * **Zona horaria**: hoy, semana, mes y mes anterior se cortan a medianoche local de
+   * `BUSINESS_TZ` (por defecto `America/El_Salvador`), calculado en SQL con `AT TIME ZONE`.
+   * La respuesta incluye `timeZone` con la zona usada.
    */
   async summary() {
     const now = new Date();
-    const todayStart = startOfDayUTC(now);
-    const tomorrow = addDays(todayStart, 1);
-    const monthStart = startOfMonthUTC(now);
+    const periods = await businessPeriods(prisma, now);
+    const { todayStart, tomorrow, monthStart } = periods;
+    const todayDate = dateKeyToDbDate(periods.todayDate);
+    const in30Days = dateKeyToDbDate(periods.todayDate, 30);
 
     const [
       sales,
@@ -135,7 +124,7 @@ export const dashboardService = {
       upcomingPayroll,
       docsExpiring,
     ] = await Promise.all([
-      computeSalesSection(prisma, now),
+      computeSalesSection(prisma, now, periods),
       prisma.product.findMany({
         where: { isActive: true },
         select: { currentStock: true, costPrice: true, minStock: true },
@@ -168,8 +157,8 @@ export const dashboardService = {
           isActive: true,
           expiryDate: {
             not: null,
-            lte: addDays(todayStart, 30),
-            gte: todayStart,
+            lte: in30Days,
+            gte: todayDate,
           },
         },
       }),
@@ -200,6 +189,7 @@ export const dashboardService = {
 
     return {
       generatedAt: now.toISOString(),
+      timeZone: periods.timeZone,
       sales,
       inventory: {
         totalValue: round2(inventoryValue),

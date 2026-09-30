@@ -51,7 +51,7 @@ describe("ventas netas", () => {
 
   it("rellena siete días en orden ascendente", () => {
     const series = fillDailySeries(
-      new Date("2031-03-09T00:00:00.000Z"),
+      "2031-03-09",
       7,
       [{ date: "2031-03-10", amount: 20, count: 1 }],
       [{ date: "2031-03-15", amount: 25, count: 2 }],
