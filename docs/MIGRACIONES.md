@@ -1,5 +1,45 @@
 # Migraciones Prisma y compatibilidad con el POS
 
+## Signo de `InventoryMovements.quantity` (normalización manual opcional)
+
+La convención compartida con la caja WPF es que `public."InventoryMovements".quantity` y `"TotalCost"` siempre guardan magnitudes positivas; la dirección la expresa `"MovementType"`. Las entradas son `ENTRADA_COMPRA`, `ENTRADA_DEVOLUCION` y `AJUSTE_ENTRADA`; las salidas son `SALIDA_VENTA` y `AJUSTE_SALIDA`.
+
+En una base real solo podrían existir cantidades o costos negativos en movimientos `AJUSTE_SALIDA` creados por `POST /inventory/movements` o `POST /inventory/import` antes de este cambio. Los checkouts de la tienda con tipo `VENTA` nunca se guardaron porque el CHECK `MovementTypeValid` los rechazaba y la transacción hacía rollback.
+
+Este PR no incluye una migración automática: no se modifican datos reales sin revisión. Los lectores ya aplican `ABS`, por lo que normalizar las filas existentes es opcional y cosmético. Si se decide hacerlo, ejecutar manualmente en una ventana revisada:
+
+```sql
+-- (1) Respaldo, ejecutado desde la consola del sistema:
+-- pg_dump --format=custom --file=ferreteria_movimientos_antes_signo.dump "$DATABASE_URL"
+
+-- (2) Diagnóstico de solo lectura:
+SELECT "MovementType", count(*), sum(quantity) AS sum_quantity, sum("TotalCost") AS sum_total_cost
+FROM public."InventoryMovements"
+WHERE quantity < 0 OR "TotalCost" < 0
+GROUP BY 1;
+
+-- Si el diagnóstico muestra negativos en tipos de ENTRADA, detenerse y revisarlos a mano.
+-- No normalizarlos automáticamente.
+
+-- (3) Normalización idempotente de salidas:
+BEGIN;
+UPDATE public."InventoryMovements"
+SET quantity = ABS(quantity),
+    "TotalCost" = ABS("TotalCost")
+WHERE "MovementType" IN ('SALIDA_VENTA', 'AJUSTE_SALIDA')
+  AND (quantity < 0 OR "TotalCost" < 0);
+
+-- Verificación dentro de la transacción:
+SELECT "MovementType", count(*), sum(quantity) AS sum_quantity, sum("TotalCost") AS sum_total_cost
+FROM public."InventoryMovements"
+WHERE "MovementType" IN ('SALIDA_VENTA', 'AJUSTE_SALIDA')
+  AND (quantity < 0 OR "TotalCost" < 0)
+GROUP BY 1;
+COMMIT;
+```
+
+No se deben tocar `"StockBefore"`, `"StockAfter"` ni `Products."CurrentStock"`, porque esos saldos ya se calculaban correctamente. Reejecutar el bloque no cambia filas: la segunda ejecución actualiza cero registros.
+
 ## Fuente de verdad
 
 - **`prisma/migrations/` es la única fuente de verdad del esquema** a partir de M1. `prisma/schema.prisma` modela todas las tablas (API + POS) y `0_init/migration.sql` contiene además los objetos que Prisma no modela.
