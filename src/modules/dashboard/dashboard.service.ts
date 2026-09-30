@@ -7,6 +7,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { movementDirection, movementMagnitude } from "../inventory/movement-direction.js";
+import { isAtOrBelowMinimum } from "../inventory/inventory.service.js";
 
 /** Convierte `Decimal` de Prisma a `number`; `null`/`undefined` → 0. */
 function toNum(d: Prisma.Decimal | number | string | null | undefined): number {
@@ -53,6 +54,27 @@ export function mapMovementsToday(rows: MovementTodayRow[]) {
   }));
 }
 
+/**
+ * Cuenta productos activos cuyo stock está en o por debajo del mínimo.
+ * Usa el mismo criterio de `fn_stock_alert` y `VProductsStock` que las alertas.
+ *
+ * @param products - Productos con stock actual y mínimo configurado.
+ * @returns Cantidad de productos en o por debajo del mínimo.
+ */
+export function countProductsAtOrBelowMinimum(
+  products: Array<{
+    currentStock: Prisma.Decimal | number | string;
+    minStock: Prisma.Decimal | number | string;
+  }>,
+): number {
+  return products.filter((product) =>
+    isAtOrBelowMinimum(
+      new Prisma.Decimal(product.currentStock),
+      new Prisma.Decimal(product.minStock),
+    ),
+  ).length;
+}
+
 /** Suma magnitudes por tipo para no mezclar signos históricos con la convención vigente. */
 async function queryMovementsToday(todayStart: Date, tomorrow: Date): Promise<MovementTodayRow[]> {
   return prisma.$queryRaw<MovementTodayRow[]>(Prisma.sql`
@@ -83,7 +105,7 @@ export const dashboardService = {
    *
    * **Inventario**
    * - `totalValue`: Σ (`currentStock` × `costPrice`) de productos activos.
-   * - `belowMin`: productos activos con `currentStock < minStock`.
+   * - `belowMin`: productos activos con `currentStock <= minStock`, igual que las alertas abiertas.
    * - `movementsToday`: movimientos agrupados por tipo en el día UTC actual.
    *
    * **Compras**
@@ -211,9 +233,7 @@ export const dashboardService = {
       (acc, p) => acc + toNum(p.currentStock) * toNum(p.costPrice),
       0,
     );
-    const belowMin = inventoryAgg.filter(
-      (p) => toNum(p.currentStock) < toNum(p.minStock),
-    ).length;
+    const belowMin = countProductsAtOrBelowMinimum(inventoryAgg);
 
     const purchasesBySupplier = await prisma.purchaseOrder.groupBy({
       by: ["supplierId"],
