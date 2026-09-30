@@ -6,6 +6,7 @@
 import { Prisma } from "@prisma/client";
 import ExcelJS from "exceljs";
 import { prisma } from "../../lib/prisma.js";
+import { businessCalendarRange, businessDateKey } from "../../shared/business-time.js";
 import { BadRequestError, NotFoundError } from "../../shared/errors.js";
 
 /** Tipos de libro IVA soportados. */
@@ -22,11 +23,12 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-/** Rango [inicio, fin) del mes calendario en UTC. */
-function monthRange(year: number, month: number): { start: Date; end: Date } {
-  const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
-  const end = new Date(Date.UTC(year, month, 1, 0, 0, 0));
-  return { start, end };
+/**
+ * Rango [inicio, fin) del mes calendario en la zona del negocio (`BUSINESS_TZ`,
+ * por defecto `America/El_Salvador`), calculado en SQL con `AT TIME ZONE`.
+ */
+function monthRange(year: number, month: number): Promise<{ start: Date; end: Date }> {
+  return businessCalendarRange(prisma, year, month);
 }
 
 /** Línea de detalle en un libro IVA. */
@@ -65,7 +67,7 @@ async function buildVentasBook(
   reportType: "VENTAS_CF" | "VENTAS_CCF",
 ): Promise<IvaBookSnapshot> {
   const dteType = reportType === "VENTAS_CF" ? "01" : "03";
-  const { start, end } = monthRange(year, month);
+  const { start, end } = await monthRange(year, month);
 
   const rows = await prisma.dteIssued.findMany({
     where: {
@@ -86,7 +88,7 @@ async function buildVentasBook(
   const lines: IvaLine[] = rows.map((r) => {
     const customer = r.order?.customer;
     return {
-      date: r.issuedAt.toISOString().slice(0, 10),
+      date: businessDateKey(r.issuedAt),
       documentNumber: r.controlNumber,
       documentType: r.dteType,
       partnerName: customer?.name ?? (reportType === "VENTAS_CF" ? "Consumidor final" : "Cliente"),
@@ -116,7 +118,7 @@ async function buildVentasBook(
  * Asume gravado completo: `totalExenta = 0`, `totalGravada = subtotal`, `totalIva = taxAmount`.
  */
 async function buildComprasBook(year: number, month: number): Promise<IvaBookSnapshot> {
-  const { start, end } = monthRange(year, month);
+  const { start, end } = await monthRange(year, month);
 
   const rows = await prisma.purchaseOrder.findMany({
     where: {
@@ -134,7 +136,7 @@ async function buildComprasBook(year: number, month: number): Promise<IvaBookSna
     const tax = toNum(r.taxAmount);
     const total = toNum(r.total);
     return {
-      date: (r.receivedAt ?? r.createdAt).toISOString().slice(0, 10),
+      date: businessDateKey(r.receivedAt ?? r.createdAt),
       documentNumber: r.supplierDocNumber ?? r.id.slice(0, 8),
       documentType: r.supplierDocType ?? "OTRO",
       partnerName: r.supplier.name,
@@ -407,11 +409,10 @@ export const fiscalService = {
     if (params.dteType) where.dteType = params.dteType;
     if (params.mhStatus) where.mhStatus = params.mhStatus;
     if (params.year !== undefined && params.month !== undefined) {
-      const { start, end } = monthRange(params.year, params.month);
+      const { start, end } = await monthRange(params.year, params.month);
       where.issuedAt = { gte: start, lt: end };
     } else if (params.year !== undefined) {
-      const start = new Date(Date.UTC(params.year, 0, 1));
-      const end = new Date(Date.UTC(params.year + 1, 0, 1));
+      const { start, end } = await businessCalendarRange(prisma, params.year);
       where.issuedAt = { gte: start, lt: end };
     }
 

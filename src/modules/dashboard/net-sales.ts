@@ -5,6 +5,12 @@
  */
 
 import { Prisma, PrismaClient } from "@prisma/client";
+import {
+  businessPeriods,
+  businessTimeZone,
+  dateKeyToDbDate,
+  type BusinessPeriods,
+} from "../../shared/business-time.js";
 
 /** Fila numérica agregada por una clave de negocio. */
 export interface SalesAggregateRow {
@@ -241,14 +247,14 @@ export function mergeByKey(
 /**
  * Construye una serie diaria con todos los días solicitados, incluso cuando no hay datos.
  *
- * @param start - Primer día de la serie en UTC.
+ * @param startDate - Primer día de la serie (`YYYY-MM-DD`, fecha local del negocio).
  * @param days - Número de días calendario a generar.
  * @param grossRows - Agregados diarios de órdenes completadas.
  * @param returnRows - Agregados diarios de devoluciones completadas.
  * @returns Serie ascendente con montos y conteos netos por día.
  */
 export function fillDailySeries(
-  start: Date,
+  startDate: string,
   days: number,
   grossRows: readonly DailySalesRow[],
   returnRows: readonly DailySalesRow[],
@@ -275,9 +281,7 @@ export function fillDailySeries(
 
   const result: DailySalesPoint[] = [];
   for (let offset = 0; offset < days; offset += 1) {
-    const date = new Date(start);
-    date.setUTCDate(date.getUTCDate() + offset);
-    const dateKey = date.toISOString().slice(0, 10);
+    const dateKey = dateKeyToDbDate(startDate, offset).toISOString().slice(0, 10);
     const gross = round2(grossByDate.get(dateKey)?.amount ?? 0);
     const returns = round2(returnsByDate.get(dateKey)?.amount ?? 0);
     result.push({
@@ -321,23 +325,6 @@ function toNumber(value: unknown): number {
   return Number(value);
 }
 
-/** Obtiene el inicio del día UTC de una fecha. */
-function startOfDayUTC(date: Date): Date {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-}
-
-/** Suma días calendario en UTC sin modificar la fecha recibida. */
-function addDays(date: Date, days: number): Date {
-  const result = new Date(date);
-  result.setUTCDate(result.getUTCDate() + days);
-  return result;
-}
-
-/** Obtiene el primer instante del mes calendario UTC. */
-function startOfMonthUTC(date: Date): Date {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
-}
-
 /** Separa una consulta UNION ALL en filas de bruto y de devoluciones. */
 function splitAggregateRows(rows: readonly RawAggregateRow[]): {
   gross: SalesAggregateRow[];
@@ -379,18 +366,20 @@ function sortByNet<T extends { key: string; net: number }>(rows: T[]): T[] {
  * orden relacionada debe conservar `status = 'COMPLETADA'`.
  *
  * @param db - Cliente Prisma normal o cliente de una transacción abierta.
- * @param now - Instante de referencia para fijar todos los rangos UTC.
+ * Los cortes de día, semana y mes se calculan en la zona del negocio (`BUSINESS_TZ`,
+ * por defecto `America/El_Salvador`) con `AT TIME ZONE`, igual que la serie diaria.
+ *
+ * @param now - Instante de referencia para fijar todos los rangos.
+ * @param periods - Límites ya calculados (el summary los comparte); si se omiten se calculan con `db`.
  * @returns Bloque `sales` compatible con el summary existente y sus campos nuevos.
  */
 export async function computeSalesSection(
   db: Prisma.TransactionClient | PrismaClient,
   now: Date,
+  periods?: BusinessPeriods,
 ): Promise<SalesSection> {
-  const todayStart = startOfDayUTC(now);
-  const tomorrow = addDays(todayStart, 1);
-  const weekStart = addDays(todayStart, -6);
-  const monthStart = startOfMonthUTC(now);
-  const prevMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  const bounds = periods ?? (await businessPeriods(db, now, businessTimeZone()));
+  const { timeZone, todayStart, tomorrow, weekStart, monthStart, prevMonthStart } = bounds;
   const prevMonthEnd = monthStart;
 
   const [totals] = await db.$queryRaw<TotalsRow[]>(Prisma.sql`
@@ -488,19 +477,19 @@ export async function computeSalesSection(
     WITH bounds AS (
       SELECT ${weekStart}::timestamptz AS week_start, ${tomorrow}::timestamptz AS tomorrow
     )
-    SELECT (o."CreatedAt" AT TIME ZONE 'UTC')::date::text AS "date", 'gross' AS "source",
+    SELECT (o."CreatedAt" AT TIME ZONE ${timeZone}::text)::date::text AS "date", 'gross' AS "source",
            SUM(o."total")::numeric AS "amount", COUNT(*)::int AS "count"
     FROM sales."Orders" o CROSS JOIN bounds b
     WHERE o.status = 'COMPLETADA' AND o."CreatedAt" >= b.week_start AND o."CreatedAt" < b.tomorrow
-    GROUP BY (o."CreatedAt" AT TIME ZONE 'UTC')::date
+    GROUP BY 1
     UNION ALL
-    SELECT (r."CreatedAt" AT TIME ZONE 'UTC')::date::text AS "date", 'returns' AS "source",
+    SELECT (r."CreatedAt" AT TIME ZONE ${timeZone}::text)::date::text AS "date", 'returns' AS "source",
            SUM(r."total")::numeric AS "amount", COUNT(*)::int AS "count"
     FROM sales."Returns" r
     INNER JOIN sales."Orders" o ON o."id" = r."OrderId" AND o.status = 'COMPLETADA'
     CROSS JOIN bounds b
     WHERE r.status = 'COMPLETADA' AND r."CreatedAt" >= b.week_start AND r."CreatedAt" < b.tomorrow
-    GROUP BY (r."CreatedAt" AT TIME ZONE 'UTC')::date
+    GROUP BY 1
   `);
 
   const categoryRows = await db.$queryRaw<RawCategoryAggregateRow[]>(Prisma.sql`
@@ -604,7 +593,7 @@ export async function computeSalesSection(
   const dailyReturns = dailyRows
     .filter((row) => row.source === "returns")
     .map((row) => ({ date: row.date, amount: toNumber(row.amount), count: Number(row.count) }));
-  const daily = fillDailySeries(weekStart, 7, dailyGross, dailyReturns);
+  const daily = fillDailySeries(bounds.weekStartDate, 7, dailyGross, dailyReturns);
 
   const grossToday = round2(toNumber(totals.grossToday));
   const grossWeek = round2(toNumber(totals.grossWeek));
