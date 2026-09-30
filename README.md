@@ -70,6 +70,7 @@ La caja **no** consume esta API en el MVP inicial; escribe directamente en Postg
 | PostgreSQL | 14+ (17 en Docker local) | Base de datos |
 | Zod | Última | Validación de entradas HTTP |
 | JWT + bcrypt | — | Autenticación admin |
+| Nodemailer | 10 | SMTP transaccional (requiere Node.js >= 20) |
 | ExcelJS + PDFKit | — | Exportes planilla (portados de Beraka) |
 | TypeScript | 5.x | Lenguaje |
 
@@ -117,9 +118,9 @@ docker compose up -d
 # 2. Configurar variables
 cp .env.example .env
 
-# 3. Crear tablas desde Prisma
+# 3. Aplicar el historial de migraciones
 npm install
-npm run db:push
+npm run db:migrate:deploy
 
 # 4. Cargar seeds
 npm run db:seed
@@ -135,7 +136,7 @@ postgresql://ferreteria_user:ferreteria_dev_password@localhost:55432/ferreteria
 
 - Objetivo: **Supabase PostgreSQL** con el mismo esquema.
 - Aplicar migraciones con `npm run db:migrate:deploy` cuando el historial de migraciones esté congelado.
-- En desarrollo activo se puede usar `npm run db:push` para iterar el schema.
+- En desarrollo activo se usa `migrate dev` sobre una base personal; `db push` está prohibido en bases compartidas.
 
 ---
 
@@ -143,7 +144,7 @@ postgresql://ferreteria_user:ferreteria_dev_password@localhost:55432/ferreteria
 
 | Esquema | Contenido principal | Consumido por |
 |---|---|---|
-| `public` | Catálogo: `Products`, `Families`, `Customers`, `InventoryMovements`, `StockAlerts` | WPF (lectura/venta) + admin (CRUD) |
+| `public` | Catálogo: `Products`, `Families`, `Customers`, `InventoryMovements`, `StockAlerts` | WPF (lectura/venta) + admin (CRUD); `quantity`/`TotalCost` son magnitudes y `MovementType` da la dirección |
 | `sales` | `Orders`, `OrderDetails`, `Payments`, `CashSessions` | WPF (escritura) + admin (reportes) |
 | `dte` | `DteConfig`, `DteIssued`, `DteContingency` | WPF (emisión) + admin (consulta) |
 | `purchasing` | `Suppliers`, `PurchaseOrders`, `PurchaseOrderDetails` | Solo admin |
@@ -324,7 +325,7 @@ cd ferreteria_backend
 docker compose up -d
 cp .env.example .env
 npm install
-npm run db:push
+npm run db:migrate:deploy
 npm run db:seed
 
 # API administrativa (Fase 8+)
@@ -341,6 +342,15 @@ npm run dev
 
 Cambiar PINs antes de producción. La caja WPF valida contra `hr."Employees"."PinHash"`.
 
+### Usuarios web demo (solo desarrollo)
+
+| Usuario | Contraseña | Rol |
+|---|---|---|
+| `admin` | `admin123` | ADMIN |
+| `contador` | `contador123` | ACCOUNTANT |
+
+El usuario `contador` no se siembra cuando `NODE_ENV=production`.
+
 ### Herramientas útiles
 
 ```bash
@@ -356,8 +366,6 @@ npm run docker:reset   # Reiniciar BD local (borra datos)
 | Script | Descripción |
 |---|---|
 | `db:generate` | Genera cliente Prisma |
-| `db:push` | Sincroniza schema → BD (desarrollo) |
-| `db:push:force` | Reset completo + push (⚠️ borra datos) |
 | `db:migrate:dev` | Crea migración versionada |
 | `db:migrate:deploy` | Aplica migraciones en staging/prod |
 | `db:migrate:reset` | Reset + migrate + seed |
@@ -368,6 +376,8 @@ npm run docker:reset   # Reiniciar BD local (borra datos)
 | `docker:up` | `docker compose up -d` |
 | `docker:down` | Detiene contenedor |
 | `docker:reset` | Elimina volumen y recrea BD |
+
+ExcelJS usa el override de `uuid` 11.1.1 definido en `package.json` para mantener compatibles los exportes con formato condicional.
 
 ---
 
@@ -403,6 +413,50 @@ Alineado a `FERRETERIA_PLAN_FINALIZACION_APP.md`:
 | Referencia UI RRHH | `erp-admin-web` — portar pantallas a `ferreteria_adminweb` |
 
 ---
+
+### Contrato de autenticación del panel
+
+- `POST /api/v1/auth/login`: devuelve `{ accessToken, user, csrfToken }` y emite `fer_access` (`httpOnly`, `Path=/api`, `SameSite` configurable, `Secure` en producción) y `fer_csrf` (legible por JS).
+- `POST /api/v1/auth/logout`: elimina ambas cookies.
+- `GET /api/v1/auth/csrf`: rota el token CSRF (requiere sesión) y lo devuelve como `{ csrfToken }`.
+- El panel (otro origen) debe usar `credentials: 'include'` y enviar en `X-CSRF-Token` el `csrfToken` recibido en el cuerpo de login/csrf (guardado en memoria), porque `document.cookie` del panel no ve `fer_csrf` (cookie del dominio de la API con `Path=/api`).
+- `GET /api/v1/auth/me`: consulta la sesión autenticada.
+- Las mutaciones autenticadas por cookie requieren `X-CSRF-Token` igual a `fer_csrf`; Bearer no requiere CSRF.
+- Errores: `UNAUTHORIZED` (401), `FORBIDDEN` (403), `CSRF_INVALID` (403), `RATE_LIMITED` (429), `INVALID_JSON` (400), `VALIDATION_ERROR` (400).
+
+### Contrato de autenticación de la tienda
+
+- `POST /api/v1/shop/auth/register` y `POST /api/v1/shop/auth/login`: devuelven `{ accessToken, customer, csrfToken }` y emiten únicamente `fer_shop_access` (`httpOnly`) y `fer_shop_csrf` (legible por JS).
+- Las cookies de tienda usan `Path=/api/v1/shop`, `SameSite` configurable, `Secure` en producción o cuando `COOKIE_SECURE=true`, `Domain` configurable y `Max-Age` igual a la expiración del JWT. No se leen ni sobrescriben `fer_access`/`fer_csrf`.
+- `POST /api/v1/shop/auth/logout`: limpia solo cookies de tienda y devuelve `{ loggedOut: true }`. Puede limpiar cookies caducadas sin sesión válida; si `fer_shop_access` contiene un JWT vigente exige `X-CSRF-Token` válido.
+- `GET /api/v1/shop/auth/csrf`: requiere sesión tienda por Bearer o `fer_shop_access`, rota `fer_shop_csrf` y devuelve `{ csrfToken }`.
+- `GET` autenticado por cookie no requiere CSRF. Las mutaciones autenticadas por cookie sí requieren `X-CSRF-Token` igual a `fer_shop_csrf`; Bearer no requiere CSRF. La firma HMAC usa un dominio distinto (`shop-csrf.`) al administrativo.
+
+### Errores de Prisma
+
+El manejador global traduce errores conocidos sin exponer SQL, stack ni detalles internos:
+
+- `P2002` → `409 CONFLICT`, con los campos de `meta.target` en el mensaje.
+- `P2025` → `404 NOT_FOUND`, registro inexistente.
+- `P2003` en `DELETE` → `409 FOREIGN_KEY_CONFLICT`; en otras operaciones → `400 INVALID_REFERENCE`.
+
+El POS WPF no llama a la API: usa EF Core directo. Bearer se conserva para clientes no navegador, `tools/Ferreteria.Smoke` y scripts futuros.
+
+## Conteos físicos de inventario
+
+El módulo toma una foto del stock por familia, subfamilia o lista de productos, permite capturas por lote y aplica las diferencias como ajustes auditables.
+
+| Endpoint | Roles | Uso |
+|---|---|---|
+| `GET /api/v1/inventory/counts` | ADMIN, ACCOUNTANT, OWNER | Listar conteos |
+| `POST /api/v1/inventory/counts` | ADMIN, OWNER | Crear alcance y snapshot inicial |
+| `GET /api/v1/inventory/counts/:id` y `/:id/lines` | ADMIN, ACCOUNTANT, OWNER | Consultar resumen y líneas |
+| `PATCH /api/v1/inventory/counts/:id/lines` | ADMIN, OWNER | Capturar 1–500 cantidades |
+| `POST /api/v1/inventory/counts/:id/apply` | ADMIN, OWNER | Aplicar con `{ "confirm": true }` |
+| `POST /api/v1/inventory/counts/:id/cancel` | ADMIN, OWNER | Cancelar un conteo abierto |
+| `GET /api/v1/inventory/counts/:id/export` | ADMIN, ACCOUNTANT, OWNER | Descargar XLSX |
+
+Flujo: `ABIERTO` → `APLICADO` o `CANCELADO`. Las líneas pendientes se omiten; la diferencia se calcula contra el stock vigente al capturar, se valida que el stock final no sea negativo y se registra un movimiento `AJUSTE_ENTRADA` o `AJUSTE_SALIDA` sin cambiar el costo promedio. Las mutaciones autenticadas con cookie requieren CSRF.
 
 ## Licencia
 

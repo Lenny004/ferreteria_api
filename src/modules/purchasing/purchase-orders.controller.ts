@@ -5,6 +5,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
+import { parseUuidParam } from "../../shared/validation.js";
 import { purchaseOrdersService } from "./purchase-orders.service.js";
 
 const lineSchema = z.object({
@@ -60,7 +61,7 @@ export async function list(req: Request, res: Response, next: NextFunction) {
 /** GET `/:id` — detalle de una orden de compra. */
 export async function getById(req: Request, res: Response, next: NextFunction) {
   try {
-    jsonSuccess(res, await purchaseOrdersService.getById(req.params.id as string));
+    jsonSuccess(res, await purchaseOrdersService.getById(parseUuidParam(req.params).id));
   } catch (err) {
     next(err);
   }
@@ -81,7 +82,7 @@ export async function update(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(
       res,
-      await purchaseOrdersService.update(req.params.id as string, updateSchema.parse(req.body)),
+      await purchaseOrdersService.update(parseUuidParam(req.params).id, updateSchema.parse(req.body)),
     );
   } catch (err) {
     next(err);
@@ -91,7 +92,7 @@ export async function update(req: Request, res: Response, next: NextFunction) {
 /** POST `/:id/confirm` — confirma orden (BORRADOR → CONFIRMADA). */
 export async function confirm(req: Request, res: Response, next: NextFunction) {
   try {
-    jsonSuccess(res, await purchaseOrdersService.confirm(req.params.id as string));
+    jsonSuccess(res, await purchaseOrdersService.confirm(parseUuidParam(req.params).id));
   } catch (err) {
     next(err);
   }
@@ -100,7 +101,7 @@ export async function confirm(req: Request, res: Response, next: NextFunction) {
 /** POST `/:id/cancel` — cancela orden no recibida. */
 export async function cancel(req: Request, res: Response, next: NextFunction) {
   try {
-    jsonSuccess(res, await purchaseOrdersService.cancel(req.params.id as string));
+    jsonSuccess(res, await purchaseOrdersService.cancel(parseUuidParam(req.params).id));
   } catch (err) {
     next(err);
   }
@@ -112,7 +113,7 @@ export async function receive(req: Request, res: Response, next: NextFunction) {
     const body = receiveSchema.parse(req.body ?? {});
     jsonSuccess(
       res,
-      await purchaseOrdersService.receive(req.params.id as string, body, req.user?.userId),
+      await purchaseOrdersService.receive(parseUuidParam(req.params).id, body, req.user?.userId),
     );
   } catch (err) {
     next(err);

@@ -1,13 +1,14 @@
 /**
  * Servicio de inventario: movimientos, kardex, alertas de stock y valuación.
- * Los tipos VENTA/DEVOLUCION los registra la caja WPF; el admin solo entradas y ajustes.
+ * La cantidad y el costo total son magnitudes; el tipo determina la dirección.
  */
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { BadRequestError, NotFoundError } from "../../shared/errors.js";
+import { movementDirection, movementMagnitude, signedMovementDelta } from "./movement-direction.js";
 
-/** Tipos que el admin puede registrar (VENTA/DEVOLUCION las escribe la caja WPF). */
+/** Tipos que el admin puede registrar (SALIDA_VENTA/ENTRADA_DEVOLUCION los escribe la caja WPF). */
 export const ADMIN_MOVEMENT_TYPES = [
   "ENTRADA_COMPRA",
   "AJUSTE_ENTRADA",
@@ -34,16 +35,32 @@ function toDecimal(value: number | string): Prisma.Decimal {
 }
 
 /**
- * Sincroniza alertas de stock mínimo tras un movimiento.
- * Crea o actualiza alerta abierta si `currentStock < minStock`; la resuelve si el stock se recupera.
+ * Determina si el stock está en o por debajo del mínimo configurado.
+ * Replica la regla de `public.fn_stock_alert` y de la vista `VProductsStock`:
+ * una alerta permanece abierta cuando `currentStock <= minStock`.
+ *
+ * @param currentStock - Stock actual del producto.
+ * @param minStock - Umbral mínimo configurado para el producto.
+ * @returns `true` cuando el stock está en o por debajo del mínimo.
  */
-async function syncStockAlert(
+export function isAtOrBelowMinimum(
+  currentStock: Prisma.Decimal,
+  minStock: Prisma.Decimal,
+): boolean {
+  return currentStock.lessThanOrEqualTo(minStock);
+}
+
+/**
+ * Sincroniza alertas de stock mínimo tras un movimiento.
+ * Crea o actualiza alerta abierta si `currentStock <= minStock`; la resuelve si el stock se recupera.
+ */
+export async function syncStockAlert(
   tx: Prisma.TransactionClient,
   productId: string,
   currentStock: Prisma.Decimal,
   minStock: Prisma.Decimal,
 ): Promise<void> {
-  const belowMin = currentStock.lessThan(minStock);
+  const belowMin = isAtOrBelowMinimum(currentStock, minStock);
 
   if (belowMin) {
     const open = await tx.stockAlert.findFirst({
@@ -98,7 +115,16 @@ export const inventoryService = {
       prisma.inventoryMovement.count({ where }),
     ]);
 
-    return { items, total, take, skip };
+    return {
+      items: items.map((item) => ({
+        ...item,
+        quantity: movementMagnitude(item.quantity),
+        direction: movementDirection(item.movementType),
+      })),
+      total,
+      take,
+      skip,
+    };
   },
 
   /**
@@ -136,6 +162,8 @@ export const inventoryService = {
 
     const valuedItems = items.map((m) => ({
       ...m,
+      quantity: movementMagnitude(m.quantity),
+      direction: movementDirection(m.movementType),
       valuedBalance: new Prisma.Decimal(m.stockAfter)
         .mul(new Prisma.Decimal(m.unitCost))
         .toDecimalPlaces(2)
@@ -234,9 +262,6 @@ export const inventoryService = {
       throw new BadRequestError("La cantidad debe ser mayor que cero");
     }
 
-    const signedQty =
-      input.movementType === "AJUSTE_SALIDA" ? -Math.abs(input.quantity) : Math.abs(input.quantity);
-
     return prisma.$transaction(async (tx) => {
       const product = await tx.product.findUnique({ where: { id: input.productId } });
       if (!product || !product.isActive) {
@@ -244,12 +269,13 @@ export const inventoryService = {
       }
 
       const stockBefore = new Prisma.Decimal(product.currentStock);
-      const delta = toDecimal(signedQty);
+      const quantity = movementMagnitude(input.quantity);
+      const delta = signedMovementDelta(input.movementType, quantity);
       const stockAfter = stockBefore.add(delta);
 
       if (stockAfter.isNegative()) {
         throw new BadRequestError(
-          `Stock insuficiente: hay ${stockBefore.toString()}, se intenta restar ${Math.abs(signedQty)}`,
+          `Stock insuficiente: hay ${stockBefore.toString()}, se intenta restar ${quantity.toString()}`,
         );
       }
 
@@ -257,15 +283,12 @@ export const inventoryService = {
         input.unitCost !== undefined
           ? toDecimal(input.unitCost)
           : new Prisma.Decimal(product.costPrice);
-      const totalCost = unitCost.mul(toDecimal(Math.abs(signedQty)));
+      const totalCost = unitCost.mul(quantity).abs();
 
       let nextCostPrice = new Prisma.Decimal(product.costPrice);
-      if (
-        (input.movementType === "ENTRADA_COMPRA" || input.movementType === "AJUSTE_ENTRADA") &&
-        signedQty > 0 &&
-        input.unitCost !== undefined
-      ) {
-        const qtyIn = toDecimal(signedQty);
+      const recalculatesCost = movementDirection(input.movementType) === "ENTRADA" && input.unitCost !== undefined;
+      if (recalculatesCost) {
+        const qtyIn = quantity;
         if (stockBefore.lessThanOrEqualTo(0)) {
           nextCostPrice = unitCost;
         } else {
@@ -281,7 +304,7 @@ export const inventoryService = {
         data: {
           productId: product.id,
           movementType: input.movementType,
-          quantity: delta,
+          quantity,
           unitCost,
           totalCost,
           stockBefore,
@@ -296,7 +319,7 @@ export const inventoryService = {
         where: { id: product.id },
         data: {
           currentStock: stockAfter,
-          costPrice: nextCostPrice,
+          ...(recalculatesCost ? { costPrice: nextCostPrice } : {}),
           updatedAt: new Date(),
         },
       });
@@ -307,7 +330,7 @@ export const inventoryService = {
     });
   },
 
-  /** Lista alertas de stock bajo mínimo, filtrables por estado resuelto. */
+  /** Lista alertas de stock en o por debajo del mínimo, filtrables por estado resuelto. */
   async listAlerts(params: { resolved?: boolean; take?: number; skip?: number } = {}) {
     const where: Prisma.StockAlertWhereInput = {};
     if (params.resolved !== undefined) where.isResolved = params.resolved;

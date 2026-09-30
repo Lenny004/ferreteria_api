@@ -4,10 +4,8 @@
  */
 import type { Request, Response, NextFunction } from "express";
 
-const WEB_ROLES = ["ADMIN", "ACCOUNTANT", "OWNER"] as const;
-
 /** Roles permitidos en rutas protegidas del admin web. */
-export type WebRole = (typeof WEB_ROLES)[number];
+export type WebRole = "ADMIN" | "ACCOUNTANT" | "OWNER";
 
 /** Factory que exige uno de los roles indicados; responde 403 si `req.user.role` no coincide. */
 export function requireRole(...allowed: WebRole[]) {
