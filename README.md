@@ -442,6 +442,22 @@ El manejador global traduce errores conocidos sin exponer SQL, stack ni detalles
 
 El POS WPF no llama a la API: usa EF Core directo. Bearer se conserva para clientes no navegador, `tools/Ferreteria.Smoke` y scripts futuros.
 
+## Conteos físicos de inventario
+
+El módulo toma una foto del stock por familia, subfamilia o lista de productos, permite capturas por lote y aplica las diferencias como ajustes auditables.
+
+| Endpoint | Roles | Uso |
+|---|---|---|
+| `GET /api/v1/inventory/counts` | ADMIN, ACCOUNTANT, OWNER | Listar conteos |
+| `POST /api/v1/inventory/counts` | ADMIN, OWNER | Crear alcance y snapshot inicial |
+| `GET /api/v1/inventory/counts/:id` y `/:id/lines` | ADMIN, ACCOUNTANT, OWNER | Consultar resumen y líneas |
+| `PATCH /api/v1/inventory/counts/:id/lines` | ADMIN, OWNER | Capturar 1–500 cantidades |
+| `POST /api/v1/inventory/counts/:id/apply` | ADMIN, OWNER | Aplicar con `{ "confirm": true }` |
+| `POST /api/v1/inventory/counts/:id/cancel` | ADMIN, OWNER | Cancelar un conteo abierto |
+| `GET /api/v1/inventory/counts/:id/export` | ADMIN, ACCOUNTANT, OWNER | Descargar XLSX |
+
+Flujo: `ABIERTO` → `APLICADO` o `CANCELADO`. Las líneas pendientes se omiten; la diferencia se calcula contra el stock vigente al capturar, se valida que el stock final no sea negativo y se registra un movimiento `AJUSTE_ENTRADA` o `AJUSTE_SALIDA` sin cambiar el costo promedio. Las mutaciones autenticadas con cookie requieren CSRF.
+
 ## Licencia
 
 Copyright (c) 2026 Ferreteria — Todos los derechos reservados.

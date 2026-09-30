@@ -55,6 +55,8 @@ model Family {
   products        Product[]
   volumeDiscounts VolumeDiscount[]
 
+  inventoryCounts InventoryCount[]
+
   @@index([sortOrder], map: "IdxFamiliesSortOrder")
   @@map("Families")
   @@schema("public")
@@ -75,6 +77,8 @@ model Subfamily {
 
   family   Family    @relation(fields: [familyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Subfamilies_FamilyId_fkey")
   products Product[]
+
+  inventoryCounts InventoryCount[]
 
   @@unique([familyId, code])
   @@index([familyId], map: "IdxSubfamiliesFamily")
@@ -154,6 +158,8 @@ model Product {
   shopOrderLines       ShopOrderLine[]
   saleUnits            ProductSaleUnit[]
   volumeDiscounts      VolumeDiscount[]
+
+  inventoryCountLines InventoryCountLine[]
 
   @@index([familyId], map: "IdxProductsFamily")
   @@index([subfamilyId], map: "IdxProductsSubfamily")
@@ -386,12 +392,12 @@ model Order {
   createdAt       DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt       DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  employee    Employee      @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKOrdersEmployee")
-  cashSession CashSession?  @relation(fields: [cashSessionId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Orders_CashSessionId_fkey")
-  customer    Customer?     @relation(fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Orders_CustomerId_fkey")
-  details     OrderDetail[]
-  payments    Payment[]
-  dteIssued   DteIssued[]
+  employee           Employee            @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKOrdersEmployee")
+  cashSession        CashSession?        @relation(fields: [cashSessionId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Orders_CashSessionId_fkey")
+  customer           Customer?           @relation(fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Orders_CustomerId_fkey")
+  details            OrderDetail[]
+  payments           Payment[]
+  dteIssued          DteIssued[]
   inventoryMovements InventoryMovement[]
 
   @@index([employeeId], map: "IdxOrdersEmployee")
@@ -471,6 +477,8 @@ model InventoryMovement {
   order         Order?         @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKInventoryMovementsOrder")
   product       Product        @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "InventoryMovements_ProductId_fkey")
   purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKInventoryMovementsPurchaseOrder")
+
+  inventoryCountLine InventoryCountLine?
 
   @@index([productId, createdAt], map: "IdxInvMovProductDate")
   @@index([movementType], map: "IdxInvMovType")
@@ -749,16 +757,16 @@ model Employee {
   orders             Order[]
   inventoryMovements InventoryMovement[]
   purchaseOrders     PurchaseOrder[]
-  webUsers            WebUser[]
-  bankAccounts     EmployeeBankAccount[]
-  documents        EmployeeDocument[]
-  salaryHistory    SalaryHistory[]
-  healthRecords    HealthConditionRecord[]
-  payrollDetails   PayrollDetail[]
-  aguinaldoDetails AguinaldoDetail[]
-  termination      EmployeeTermination?
-  leaveRequests    LeaveRequest[]
-  vacationBalances VacationBalance[]
+  webUsers           WebUser[]
+  bankAccounts       EmployeeBankAccount[]
+  documents          EmployeeDocument[]
+  salaryHistory      SalaryHistory[]
+  healthRecords      HealthConditionRecord[]
+  payrollDetails     PayrollDetail[]
+  aguinaldoDetails   AguinaldoDetail[]
+  termination        EmployeeTermination?
+  leaveRequests      LeaveRequest[]
+  vacationBalances   VacationBalance[]
 
   @@index([departmentId], map: "IdxEmployeesDepartment")
   @@index([directSupervisorId], map: "IdxEmployeesSupervisor")
@@ -1287,7 +1295,12 @@ model WebUser {
   createdAt    DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt    DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  employee     Employee? @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "WebUsers_EmployeeId_fkey")
+  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "WebUsers_EmployeeId_fkey")
+
+  inventoryCountsCreated   InventoryCount[]     @relation("InventoryCountCreatedBy")
+  inventoryCountsApplied   InventoryCount[]     @relation("InventoryCountAppliedBy")
+  inventoryCountsCancelled InventoryCount[]     @relation("InventoryCountCancelledBy")
+  inventoryCountLines      InventoryCountLine[] @relation("InventoryCountLineCountedBy")
 
   @@map("WebUsers")
   @@schema("system")
@@ -1480,4 +1493,69 @@ model AuditLog {
   @@index([createdAt], map: "IdxAuditLogCreatedAt")
   @@map("AuditLog")
   @@schema("system")
+}
+
+// =============================================================================
+// Toma física de inventario (conteos cíclicos) - solo API admin; la caja WPF no mapea estas tablas.
+// Los ajustes resultantes se registran en InventoryMovements (AJUSTE_ENTRADA / AJUSTE_SALIDA).
+// =============================================================================
+
+/// Conteo físico: foto del stock del sistema, capturas y aplicación de diferencias.
+model InventoryCount {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  folio                Int       @unique @default(autoincrement()) @map("Folio")
+  name                 String    @db.VarChar(120)
+  /// ABIERTO | APLICADO | CANCELADO
+  status               String    @default("ABIERTO") @map("Status") @db.VarChar(15)
+  familyId             String?   @map("FamilyId") @db.Uuid
+  subfamilyId          String?   @map("SubfamilyId") @db.Uuid
+  notes                String?   @db.Text
+  createdByWebUserId   String?   @map("CreatedByWebUserId") @db.Uuid
+  appliedByWebUserId   String?   @map("AppliedByWebUserId") @db.Uuid
+  cancelledByWebUserId String?   @map("CancelledByWebUserId") @db.Uuid
+  appliedAt            DateTime? @map("AppliedAt") @db.Timestamptz
+  cancelledAt          DateTime? @map("CancelledAt") @db.Timestamptz
+  createdAt            DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt            DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  family      Family?              @relation(fields: [familyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "InventoryCounts_FamilyId_fkey")
+  subfamily   Subfamily?           @relation(fields: [subfamilyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "InventoryCounts_SubfamilyId_fkey")
+  createdBy   WebUser?             @relation("InventoryCountCreatedBy", fields: [createdByWebUserId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "InventoryCounts_CreatedByWebUserId_fkey")
+  appliedBy   WebUser?             @relation("InventoryCountAppliedBy", fields: [appliedByWebUserId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "InventoryCounts_AppliedByWebUserId_fkey")
+  cancelledBy WebUser?             @relation("InventoryCountCancelledBy", fields: [cancelledByWebUserId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "InventoryCounts_CancelledByWebUserId_fkey")
+  lines       InventoryCountLine[]
+
+  @@index([status], map: "IdxInventoryCountsStatus")
+  @@index([createdAt], map: "IdxInventoryCountsCreatedAt")
+  @@map("InventoryCounts")
+  @@schema("public")
+}
+
+/// Línea de conteo por producto; la diferencia se calcula contra el stock al momento de capturar.
+model InventoryCountLine {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  countId              String    @map("CountId") @db.Uuid
+  productId            String    @map("ProductId") @db.Uuid
+  systemStockAtStart   Decimal   @map("SystemStockAtStart") @db.Decimal(12, 3)
+  countedQuantity      Decimal?  @map("CountedQuantity") @db.Decimal(12, 3)
+  systemStockAtCount   Decimal?  @map("SystemStockAtCount") @db.Decimal(12, 3)
+  countedAt            DateTime? @map("CountedAt") @db.Timestamptz
+  countedByWebUserId   String?   @map("CountedByWebUserId") @db.Uuid
+  varianceQuantity     Decimal?  @map("VarianceQuantity") @db.Decimal(12, 3)
+  unitCostAtApply      Decimal?  @map("UnitCostAtApply") @db.Decimal(12, 4)
+  adjustmentMovementId String?   @unique @map("AdjustmentMovementId") @db.Uuid
+  notes                String?   @db.VarChar(300)
+  createdAt            DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
+  updatedAt            DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
+
+  count              InventoryCount     @relation(fields: [countId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "InventoryCountLines_CountId_fkey")
+  product            Product            @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "InventoryCountLines_ProductId_fkey")
+  countedBy          WebUser?           @relation("InventoryCountLineCountedBy", fields: [countedByWebUserId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "InventoryCountLines_CountedByWebUserId_fkey")
+  adjustmentMovement InventoryMovement? @relation(fields: [adjustmentMovementId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "InventoryCountLines_AdjustmentMovementId_fkey")
+
+  @@unique([countId, productId], map: "UqInventoryCountLinesCountProduct")
+  @@index([countId], map: "IdxInventoryCountLinesCount")
+  @@index([productId], map: "IdxInventoryCountLinesProduct")
+  @@map("InventoryCountLines")
+  @@schema("public")
 }
