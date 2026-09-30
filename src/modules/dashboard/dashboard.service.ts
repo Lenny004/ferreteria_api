@@ -6,6 +6,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
+import { movementDirection, movementMagnitude } from "../inventory/movement-direction.js";
 
 /** Convierte `Decimal` de Prisma a `number`; `null`/`undefined` → 0. */
 function toNum(d: Prisma.Decimal | number | string | null | undefined): number {
@@ -34,6 +35,36 @@ function addDays(d: Date, days: number): Date {
 /** Primer instante del mes en UTC. */
 function startOfMonthUTC(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+}
+
+type MovementTodayRow = {
+  movementType: string;
+  count: number;
+  quantity: Prisma.Decimal | number | string;
+};
+
+/** Convierte la agregación SQL de movimientos del día en la forma pública del dashboard. */
+export function mapMovementsToday(rows: MovementTodayRow[]) {
+  return rows.map((row) => ({
+    movementType: row.movementType,
+    count: Number(row.count),
+    quantity: toNum(movementMagnitude(row.quantity)),
+    direction: movementDirection(row.movementType),
+  }));
+}
+
+/** Suma magnitudes por tipo para no mezclar signos históricos con la convención vigente. */
+async function queryMovementsToday(todayStart: Date, tomorrow: Date): Promise<MovementTodayRow[]> {
+  return prisma.$queryRaw<MovementTodayRow[]>(Prisma.sql`
+    SELECT
+      "MovementType" AS "movementType",
+      COUNT(*)::int AS count,
+      COALESCE(SUM(ABS(quantity)), 0)::numeric AS quantity
+    FROM public."InventoryMovements"
+    WHERE "CreatedAt" >= ${todayStart} AND "CreatedAt" < ${tomorrow}
+    GROUP BY "MovementType"
+    ORDER BY "MovementType"
+  `);
 }
 
 export const dashboardService = {
@@ -133,12 +164,7 @@ export const dashboardService = {
         select: { currentStock: true, costPrice: true, minStock: true },
       }),
       prisma.stockAlert.count({ where: { isResolved: false } }),
-      prisma.inventoryMovement.groupBy({
-        by: ["movementType"],
-        where: { createdAt: { gte: todayStart, lt: tomorrow } },
-        _count: true,
-        _sum: { quantity: true },
-      }),
+      queryMovementsToday(todayStart, tomorrow),
       prisma.purchaseOrder.count({
         where: { status: { in: ["BORRADOR", "CONFIRMADA"] } },
       }),
@@ -247,11 +273,7 @@ export const dashboardService = {
         activeProducts: inventoryAgg.length,
         belowMin,
         openAlerts,
-        movementsToday: movementsToday.map((m) => ({
-          movementType: m.movementType,
-          count: m._count,
-          quantity: toNum(m._sum.quantity),
-        })),
+        movementsToday: mapMovementsToday(movementsToday),
       },
       purchases: {
         pendingOrders: pendingPOs,

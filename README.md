@@ -144,7 +144,7 @@ postgresql://ferreteria_user:ferreteria_dev_password@localhost:55432/ferreteria
 
 | Esquema | Contenido principal | Consumido por |
 |---|---|---|
-| `public` | Catálogo: `Products`, `Families`, `Customers`, `InventoryMovements`, `StockAlerts` | WPF (lectura/venta) + admin (CRUD) |
+| `public` | Catálogo: `Products`, `Families`, `Customers`, `InventoryMovements`, `StockAlerts` | WPF (lectura/venta) + admin (CRUD); `quantity`/`TotalCost` son magnitudes y `MovementType` da la dirección |
 | `sales` | `Orders`, `OrderDetails`, `Payments`, `CashSessions` | WPF (escritura) + admin (reportes) |
 | `dte` | `DteConfig`, `DteIssued`, `DteContingency` | WPF (emisión) + admin (consulta) |
 | `purchasing` | `Suppliers`, `PurchaseOrders`, `PurchaseOrderDetails` | Solo admin |
