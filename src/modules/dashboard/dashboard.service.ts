@@ -6,6 +6,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
+import { computeSalesSection } from "./net-sales.js";
 import { movementDirection, movementMagnitude } from "../inventory/movement-direction.js";
 import { isAtOrBelowMinimum } from "../inventory/inventory.service.js";
 
@@ -94,14 +95,13 @@ export const dashboardService = {
    * Resumen ejecutivo del negocio para el dashboard admin.
    *
    * **Ventas**
-   * - `today` / `week` / `month`: Σ `order.total` de órdenes `COMPLETADA` en el rango.
-   *   - Hoy: `[todayStart, mañana)`.
-   *   - Semana: últimos 7 días incluyendo hoy (`weekStart = hoy − 6`).
-   *   - Mes: desde el día 1 del mes actual hasta mañana.
-   * - `prevMonth` / `monthOverMonthPct`: mes calendario anterior completo.
-   *   - Variación MoM: `((mes − mesAnterior) / mesAnterior) × 100`; `null` si mes anterior = 0.
-   * - `avgTicket`: `ventasMes / transaccionesMes` (0 si no hay transacciones).
-   * - `topProducts`: top 5 por `subtotal` en líneas del mes actual.
+   * - `gross` suma `Orders.total` de órdenes `COMPLETADA` por `Orders.CreatedAt`.
+   * - `returns` suma `Returns.total` de devoluciones `COMPLETADA` cuya orden original también
+   *   está `COMPLETADA`, atribuidas por `Returns.CreatedAt`; las `ANULADA` no cuentan.
+   * - `net` y las claves históricas (`today`, `week`, `month`, `prevMonth`) son bruto menos
+   *   devoluciones, redondeado a dos decimales. Incluye desglose por tipo, producto, día y familia.
+   * - `monthOverMonthPct` compara netos y es `null` si el neto del mes anterior no es positivo.
+   *   `avgTicket` usa neto mensual; `avgTicketGross` usa bruto mensual.
    *
    * **Inventario**
    * - `totalValue`: Σ (`currentStock` × `costPrice`) de productos activos.
@@ -122,18 +122,10 @@ export const dashboardService = {
     const now = new Date();
     const todayStart = startOfDayUTC(now);
     const tomorrow = addDays(todayStart, 1);
-    const weekStart = addDays(todayStart, -6);
     const monthStart = startOfMonthUTC(now);
-    const prevMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-    const prevMonthEnd = monthStart;
 
     const [
-      salesToday,
-      salesWeek,
-      salesMonth,
-      salesPrevMonth,
-      txToday,
-      topProducts,
+      sales,
       inventoryAgg,
       openAlerts,
       movementsToday,
@@ -143,44 +135,7 @@ export const dashboardService = {
       upcomingPayroll,
       docsExpiring,
     ] = await Promise.all([
-      prisma.order.aggregate({
-        where: { status: "COMPLETADA", createdAt: { gte: todayStart, lt: tomorrow } },
-        _sum: { total: true },
-        _count: true,
-      }),
-      prisma.order.aggregate({
-        where: { status: "COMPLETADA", createdAt: { gte: weekStart, lt: tomorrow } },
-        _sum: { total: true },
-        _count: true,
-      }),
-      prisma.order.aggregate({
-        where: { status: "COMPLETADA", createdAt: { gte: monthStart, lt: tomorrow } },
-        _sum: { total: true },
-        _count: true,
-      }),
-      prisma.order.aggregate({
-        where: {
-          status: "COMPLETADA",
-          createdAt: { gte: prevMonthStart, lt: prevMonthEnd },
-        },
-        _sum: { total: true },
-        _count: true,
-      }),
-      prisma.order.groupBy({
-        by: ["orderType"],
-        where: { status: "COMPLETADA", createdAt: { gte: monthStart, lt: tomorrow } },
-        _sum: { total: true },
-        _count: true,
-      }),
-      prisma.orderDetail.groupBy({
-        by: ["productId"],
-        where: {
-          order: { status: "COMPLETADA", createdAt: { gte: monthStart, lt: tomorrow } },
-        },
-        _sum: { quantity: true, subtotal: true },
-        orderBy: { _sum: { subtotal: "desc" } },
-        take: 5,
-      }),
+      computeSalesSection(prisma, now),
       prisma.product.findMany({
         where: { isActive: true },
         select: { currentStock: true, costPrice: true, minStock: true },
@@ -220,15 +175,6 @@ export const dashboardService = {
       }),
     ]);
 
-    const productIds = topProducts.map((p) => p.productId);
-    const products = productIds.length
-      ? await prisma.product.findMany({
-          where: { id: { in: productIds } },
-          select: { id: true, code: true, description: true },
-        })
-      : [];
-    const productMap = new Map(products.map((p) => [p.id, p]));
-
     const inventoryValue = inventoryAgg.reduce(
       (acc, p) => acc + toNum(p.currentStock) * toNum(p.costPrice),
       0,
@@ -252,42 +198,9 @@ export const dashboardService = {
       : [];
     const supplierMap = new Map(suppliers.map((s) => [s.id, s.name]));
 
-    const salesMonthTotal = toNum(salesMonth._sum.total);
-    const salesPrevTotal = toNum(salesPrevMonth._sum.total);
-    const salesMomPct =
-      salesPrevTotal > 0
-        ? round2(((salesMonthTotal - salesPrevTotal) / salesPrevTotal) * 100)
-        : null;
-
     return {
       generatedAt: now.toISOString(),
-      sales: {
-        today: round2(toNum(salesToday._sum.total)),
-        todayTx: salesToday._count,
-        week: round2(toNum(salesWeek._sum.total)),
-        weekTx: salesWeek._count,
-        month: round2(salesMonthTotal),
-        monthTx: salesMonth._count,
-        prevMonth: round2(salesPrevTotal),
-        monthOverMonthPct: salesMomPct,
-        avgTicket:
-          salesMonth._count > 0 ? round2(salesMonthTotal / salesMonth._count) : 0,
-        byOrderType: txToday.map((g) => ({
-          orderType: g.orderType,
-          total: round2(toNum(g._sum.total)),
-          count: g._count,
-        })),
-        topProducts: topProducts.map((g) => {
-          const p = productMap.get(g.productId);
-          return {
-            productId: g.productId,
-            code: p?.code ?? "—",
-            description: p?.description ?? "—",
-            quantity: toNum(g._sum.quantity),
-            amount: round2(toNum(g._sum.subtotal)),
-          };
-        }),
-      },
+      sales,
       inventory: {
         totalValue: round2(inventoryValue),
         activeProducts: inventoryAgg.length,

@@ -137,7 +137,7 @@ Después: `npx prisma migrate resolve --rolled-back 2_pos_devoluciones`. Solo co
 - Un solo egreso de caja por devolución: `UqCashMovementsReturnRefund` (único parcial por `ReturnId` cuando el tipo es `DEVOLUCION_EFECTIVO`).
 - **POS (`Squema.sql`)**: `docs/pos/2_pos_devoluciones_squema.sql` es la versión idempotente (`IF NOT EXISTS`, `CREATE OR REPLACE TRIGGER`) que Ferretería Caja debe copiar a `Ferreteria.PuntoVenta/Squema.sql`. Produce exactamente el mismo catálogo (columnas, tipos, defaults, constraints, índices y trigger) que esta migración; ver `tests-db/`.
 - Pruebas de constraints contra Postgres real: `npm run test:db` (requiere `DATABASE_URL` explícita a `localhost`/`127.0.0.1`; en CI corre contra el servicio Postgres ya migrado).
-- Próximo paso (fuera de esta migración): descontar devoluciones (`Returns.total` con `status = 'COMPLETADA'`) en las ventas netas del panel/API.
+- Próximo paso: implementar y mantener las ventas netas del panel/API según [docs/VENTAS_NETAS.md](VENTAS_NETAS.md).
 
 ## Pendientes conocidos
 
