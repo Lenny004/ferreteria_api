@@ -10,7 +10,7 @@ El endpoint `GET /api/v1/dashboard/summary` mantiene la autorización existente 
 - **Líneas:** `topProducts` y `byCategory` usan `OrderDetails.subtotal` y `OrderDetails.quantity` para bruto, y `ReturnDetails.subtotal` y `ReturnDetails.quantity` para devoluciones. La cantidad devuelta usa la misma unidad comercial de la línea original.
 - **Totales:** `today`, `week`, `month` y `prevMonth` son netos por compatibilidad; `gross`, `returns` y `net` muestran cada componente. `todayTx`, `weekTx` y `monthTx` siguen contando órdenes de venta completadas, sin restar devoluciones.
 
-Todos los rangos se calculan en UTC: hoy es el día UTC actual, semana son los últimos siete días incluyendo hoy, mes es el mes calendario actual y `prevMonth` es el mes calendario anterior completo. Las series diarias siempre contienen siete filas ascendentes, incluso sin actividad.
+Todos los rangos se calculan en la zona horaria del negocio (`BUSINESS_TZ`, por defecto `America/El_Salvador`; ver [ZONA_HORARIA.md](ZONA_HORARIA.md)): hoy es el día local actual, semana son los últimos siete días incluyendo hoy, mes es el mes calendario actual y `prevMonth` es el mes calendario anterior completo. Las series diarias siempre contienen siete filas ascendentes, incluso sin actividad.
 
 ## Forma de respuesta
 
@@ -84,4 +84,3 @@ La respuesta real contiene siete filas en `daily`. `byOrderType` y `topProducts`
 ## Pendientes
 
 - Revisar con el contador el tratamiento de notas de crédito DTE 05 en los libros de IVA.
-- Definir si en el futuro los reportes deben ofrecer una zona horaria de El Salvador además de la convención UTC actual.

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_BUSINESS_TZ, isValidTimeZone } from "../shared/business-time.js";
 
 const booleanFromString = z.enum(["true", "false"]).transform((value) => value === "true");
 const sameSite = z.enum(["lax", "strict", "none"]).default("lax");
@@ -19,6 +20,12 @@ const envSchema = z.object({
   COOKIE_SECURE: booleanFromString.default("false"),
   COOKIE_SAMESITE: sameSite,
   EXPOSE_RESET_TOKEN_IN_DEV: booleanFromString.default("false"),
+  BUSINESS_TZ: z
+    .string()
+    .trim()
+    .min(1)
+    .default(DEFAULT_BUSINESS_TZ)
+    .refine(isValidTimeZone, "BUSINESS_TZ debe ser una zona horaria IANA válida (ej. America/El_Salvador)"),
 });
 
 /** Configuración validada del proceso; evita arrancar con secretos o URLs ambiguas. */
