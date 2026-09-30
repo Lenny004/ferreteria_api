@@ -7,6 +7,7 @@ import { Router } from "express";
 import { authenticate } from "../../middleware/authenticate.js";
 import { requireRole } from "../../middleware/require-role.js";
 import * as controller from "./inventory.controller.js";
+import inventoryCountsRoutes from "./inventory-counts.routes.js";
 
 const router = Router();
 
@@ -31,5 +32,7 @@ router.patch(
   controller.resolveAlert,
 );
 router.post("/import", requireRole("ADMIN", "OWNER"), controller.importMovements);
+
+router.use("/counts", inventoryCountsRoutes);
 
 export default router;
