@@ -6,6 +6,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { BadRequestError, NotFoundError } from "../../shared/errors.js";
+import { syncStockAlert } from "../inventory/inventory.service.js";
 
 export type PurchaseOrderStatus = "BORRADOR" | "CONFIRMADA" | "RECIBIDA" | "CANCELADA";
 
@@ -101,33 +102,6 @@ export function weightedAverageCost(
   const numerator = stockBefore.mul(costBefore).add(qtyIn.mul(unitCostIn));
   const denominator = stockBefore.add(qtyIn);
   return numerator.div(denominator).toDecimalPlaces(4);
-}
-
-async function syncStockAlert(
-  tx: Prisma.TransactionClient,
-  productId: string,
-  currentStock: Prisma.Decimal,
-  minStock: Prisma.Decimal,
-): Promise<void> {
-  const belowMin = currentStock.lessThan(minStock);
-  if (belowMin) {
-    const open = await tx.stockAlert.findFirst({
-      where: { productId, isResolved: false },
-    });
-    if (!open) {
-      await tx.stockAlert.create({ data: { productId, currentStock, minStock } });
-    } else {
-      await tx.stockAlert.update({
-        where: { id: open.id },
-        data: { currentStock, minStock },
-      });
-    }
-    return;
-  }
-  await tx.stockAlert.updateMany({
-    where: { productId, isResolved: false },
-    data: { isResolved: true, resolvedAt: new Date() },
-  });
 }
 
 async function resolveEmployeeId(
