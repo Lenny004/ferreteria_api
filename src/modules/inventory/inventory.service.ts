@@ -35,8 +35,24 @@ function toDecimal(value: number | string): Prisma.Decimal {
 }
 
 /**
+ * Determina si el stock está en o por debajo del mínimo configurado.
+ * Replica la regla de `public.fn_stock_alert` y de la vista `VProductsStock`:
+ * una alerta permanece abierta cuando `currentStock <= minStock`.
+ *
+ * @param currentStock - Stock actual del producto.
+ * @param minStock - Umbral mínimo configurado para el producto.
+ * @returns `true` cuando el stock está en o por debajo del mínimo.
+ */
+export function isAtOrBelowMinimum(
+  currentStock: Prisma.Decimal,
+  minStock: Prisma.Decimal,
+): boolean {
+  return currentStock.lessThanOrEqualTo(minStock);
+}
+
+/**
  * Sincroniza alertas de stock mínimo tras un movimiento.
- * Crea o actualiza alerta abierta si `currentStock < minStock`; la resuelve si el stock se recupera.
+ * Crea o actualiza alerta abierta si `currentStock <= minStock`; la resuelve si el stock se recupera.
  */
 export async function syncStockAlert(
   tx: Prisma.TransactionClient,
@@ -44,7 +60,7 @@ export async function syncStockAlert(
   currentStock: Prisma.Decimal,
   minStock: Prisma.Decimal,
 ): Promise<void> {
-  const belowMin = currentStock.lessThan(minStock);
+  const belowMin = isAtOrBelowMinimum(currentStock, minStock);
 
   if (belowMin) {
     const open = await tx.stockAlert.findFirst({
@@ -314,7 +330,7 @@ export const inventoryService = {
     });
   },
 
-  /** Lista alertas de stock bajo mínimo, filtrables por estado resuelto. */
+  /** Lista alertas de stock en o por debajo del mínimo, filtrables por estado resuelto. */
   async listAlerts(params: { resolved?: boolean; take?: number; skip?: number } = {}) {
     const where: Prisma.StockAlertWhereInput = {};
     if (params.resolved !== undefined) where.isResolved = params.resolved;

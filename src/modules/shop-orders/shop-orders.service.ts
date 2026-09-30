@@ -32,7 +32,7 @@ export const shopOrdersService = {
   /**
    * Convierte carrito en pedido PENDIENTE en transacción atómica.
    * Totales: `subtotal` = Σ (precio × qty); `taxAmount` = subtotal × IVA; `total` = subtotal + IVA.
-   * Por cada línea: movimiento SALIDA_VENTA, actualización de stock y alerta si queda bajo mínimo.
+   * Por cada línea: movimiento SALIDA_VENTA, actualización de stock y alerta si queda en o bajo mínimo.
    */
   async checkout(shopCustomerId: string, options: CheckoutOptions = {}) {
     const deliveryType = options.deliveryType ?? "RETIRO_TIENDA";
