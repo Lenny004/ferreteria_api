@@ -2,6 +2,8 @@
 
 `InventoryMovements.quantity` y `TotalCost` se almacenan como magnitudes positivas; `MovementType` determina si el movimiento es `ENTRADA` o `SALIDA`.
 
+Las alertas abiertas de `StockAlerts` siguen la regla `stock <= mínimo`, igual que el trigger `public.fn_stock_alert`.
+
 ## Tablas agregadas por conteos físicos
 
 - `public."InventoryCounts"`: cabecera del conteo, alcance, estado y auditoría de usuarios web.

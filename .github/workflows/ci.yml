@@ -19,7 +19,8 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    # Se fija la imagen para que el cambio a Ubuntu 26 sea una decisión explícita.
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:17
