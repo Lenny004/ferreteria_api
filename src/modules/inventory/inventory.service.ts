@@ -37,7 +37,7 @@ function toDecimal(value: number | string): Prisma.Decimal {
  * Sincroniza alertas de stock mínimo tras un movimiento.
  * Crea o actualiza alerta abierta si `currentStock < minStock`; la resuelve si el stock se recupera.
  */
-async function syncStockAlert(
+export async function syncStockAlert(
   tx: Prisma.TransactionClient,
   productId: string,
   currentStock: Prisma.Decimal,
