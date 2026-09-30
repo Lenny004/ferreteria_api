@@ -155,7 +155,12 @@ type RawCategoryAggregateRow = RawAggregateRow & {
   name: string;
 };
 
-/** Redondea un monto monetario a dos decimales sin eliminar resultados negativos. */
+/**
+ * Redondea un monto monetario a dos decimales sin eliminar resultados negativos.
+ *
+ * @param value - Monto que se va a redondear.
+ * @returns Monto redondeado a centavos.
+ */
 export function round2(value: number): number {
   return Math.round((value + Math.sign(value) * Number.EPSILON) * 100) / 100;
 }
@@ -165,7 +170,13 @@ function round3(value: number): number {
   return Math.round((value + Math.sign(value) * Number.EPSILON) * 1000) / 1000;
 }
 
-/** Calcula el neto de un importe bruto menos sus devoluciones. */
+/**
+ * Calcula el neto de un importe bruto menos sus devoluciones.
+ *
+ * @param gross - Importe bruto.
+ * @param returns - Importe devuelto.
+ * @returns Neto redondeado a dos decimales.
+ */
 export function netAmount(gross: number, returns: number): number {
   return round2(gross - returns);
 }
@@ -281,12 +292,24 @@ export function fillDailySeries(
   return result;
 }
 
-/** Calcula la variación porcentual mensual y evita dividir contra un mes no positivo. */
+/**
+ * Calcula la variación porcentual mensual y evita dividir contra un mes no positivo.
+ *
+ * @param net - Neto del mes actual.
+ * @param prevNet - Neto del mes calendario anterior.
+ * @returns Porcentaje redondeado o `null` cuando `prevNet` no es positivo.
+ */
 export function monthOverMonthPct(net: number, prevNet: number): number | null {
   return prevNet > 0 ? round2(((net - prevNet) / prevNet) * 100) : null;
 }
 
-/** Calcula el ticket promedio y retorna cero cuando no hubo transacciones. */
+/**
+ * Calcula el ticket promedio y retorna cero cuando no hubo transacciones.
+ *
+ * @param total - Importe total del periodo.
+ * @param transactions - Cantidad de transacciones del periodo.
+ * @returns Ticket promedio redondeado a dos decimales.
+ */
 export function averageTicket(total: number, transactions: number): number {
   return transactions > 0 ? round2(total / transactions) : 0;
 }

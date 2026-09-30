@@ -59,7 +59,12 @@ Ejemplo abreviado con los campos representativos del endpoint:
     ],
     "daily": [
       { "date": "2031-03-09", "gross": 0, "returns": 0, "net": 0, "tx": 0, "returnsCount": 0 },
-      { "date": "2031-03-10", "gross": 80, "returns": 0, "net": 80, "tx": 1, "returnsCount": 0 }
+      { "date": "2031-03-10", "gross": 80, "returns": 0, "net": 80, "tx": 1, "returnsCount": 0 },
+      { "date": "2031-03-11", "gross": 0, "returns": 0, "net": 0, "tx": 0, "returnsCount": 0 },
+      { "date": "2031-03-12", "gross": 0, "returns": 0, "net": 0, "tx": 0, "returnsCount": 0 },
+      { "date": "2031-03-13", "gross": 0, "returns": 0, "net": 0, "tx": 0, "returnsCount": 0 },
+      { "date": "2031-03-14", "gross": 0, "returns": 0, "net": 0, "tx": 0, "returnsCount": 0 },
+      { "date": "2031-03-15", "gross": 100, "returns": 15, "net": 85, "tx": 1, "returnsCount": 1 }
     ],
     "byCategory": [
       { "familyId": "uuid", "code": "FER", "name": "Ferretería", "gross": 140, "returns": 65, "net": 75 }

@@ -10,7 +10,8 @@ import {
 describe("ventas netas", () => {
   it("calcula netos negativos y redondea a dos decimales", () => {
     expect(netAmount(10, 12)).toBe(-2);
-    expect(netAmount(10.129, 2.124)).toBe(8.01);
+    expect(netAmount(10.13, 2.12)).toBe(8.01);
+    expect(netAmount(0.3, 0.1)).toBe(0.2);
   });
 
   it("combina claves presentes en un solo lado", () => {

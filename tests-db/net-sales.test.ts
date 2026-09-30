@@ -78,10 +78,10 @@ async function insertOrderDetail(
   await tx.$executeRaw`
     INSERT INTO sales."OrderDetails" (
       "id", "OrderId", "ProductId", "quantity", "UnitsPerPackage", "UnitPrice", "UnitCost",
-      "DiscountAmount", "subtotal", "TaxAmount", "CreatedAt"
+      "DiscountAmount", "subtotal", "CreatedAt"
     ) VALUES (
       ${detailId}::uuid, ${orderId}::uuid, ${productId}::uuid, ${quantity}::numeric, 1::numeric,
-      ${unitPrice}::numeric, 1::numeric, 0::numeric, ${subtotal}::numeric, 0::numeric, ${createdAt}::timestamptz
+      ${unitPrice}::numeric, 1::numeric, 0::numeric, ${subtotal}::numeric, ${createdAt}::timestamptz
     )`;
 }
 
