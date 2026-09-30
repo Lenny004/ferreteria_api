@@ -89,6 +89,56 @@ Reconciliación del schema con la BD del POS (introspección de una BD creada co
 - Producción: backup → `npx prisma migrate deploy`. Nunca `db push`.
 - Objetos no modelados (CHECK, triggers, vistas): se añaden a mano en el `migration.sql` de la migración correspondiente.
 
+## `2_pos_devoluciones` (devoluciones POS)
+
+Migración **aditiva**: crea `sales."Returns"`, `sales."ReturnDetails"` y `sales."CashMovements"` (FK `ON DELETE/UPDATE NO ACTION`, CHECKs, índices y el trigger `"TrgReturnTimestamp"`) y agrega el índice único parcial `"IdxCashSessionOpenByRegister"` sobre `sales."CashSessions"("CashRegisterCode") WHERE "status" = 'ABIERTA'` (una sola sesión abierta por caja). No modifica ni elimina tablas, columnas ni constraints existentes.
+
+Estructura del `migration.sql`:
+
+- **Parte 0**: bloque `DO` que aborta con un mensaje claro si ya hay cajas con más de una sesión `ABIERTA`. Como es la primera sentencia, si falla no se crea ningún objeto.
+- **Parte 1**: generada con `npx prisma migrate diff --from-url <BD en 1_inventory_counts> --to-schema-datamodel prisma/schema.prisma --script` (tablas, PK, índices completos y FK).
+- **Parte 2**: lo que Prisma no modela: CHECKs, índices parciales (`UqReturnsCreditNote`, `UqReturnDetailsMovement`, `UqCashMovementsReturnRefund`, `IdxCashSessionOpenByRegister`) y el trigger.
+
+### Pre-chequeo obligatorio antes de `migrate deploy` en una base real
+
+```sql
+SELECT "CashRegisterCode", COUNT(*)
+FROM sales."CashSessions"
+WHERE "status" = 'ABIERTA'
+GROUP BY 1
+HAVING COUNT(*) > 1;
+```
+
+Debe devolver **0 filas**. Si devuelve filas, cerrar o cancelar las sesiones duplicadas con revisión manual (con el cajero y el dueño) antes de desplegar. Si se despliega igual, la Parte 0 aborta la migración (`P3018`, mensaje "existen cajas con más de una sesión ABIERTA") sin crear objetos; tras corregir los datos: `npx prisma migrate resolve --rolled-back 2_pos_devoluciones` y de nuevo `npx prisma migrate deploy`.
+
+### Rollback manual (orden inverso)
+
+```sql
+DROP INDEX IF EXISTS sales."IdxCashSessionOpenByRegister";
+DROP TABLE IF EXISTS sales."CashMovements";
+DROP TABLE IF EXISTS sales."ReturnDetails";
+DROP TABLE IF EXISTS sales."Returns";
+```
+
+Después: `npx prisma migrate resolve --rolled-back 2_pos_devoluciones`. Solo con respaldo previo y si las tablas no tienen datos que conservar.
+
+### Decisiones del dueño aplicadas
+
+1. La orden original **conserva `status = 'COMPLETADA'`** incluso en una devolución total (no existe estado `DEVUELTA`; `OrderStatusValid` no cambia).
+2. La columna de estado es `"status"` en minúsculas, como el resto de `sales`.
+3. El egreso de caja por reembolso es `"MovementType" = 'DEVOLUCION_EFECTIVO'` (no `EGRESO_DEVOLUCION`).
+4. El reingreso a inventario usa el **costo original de la venta** (`ReturnDetails."UnitCost"` = `OrderDetails."UnitCost"` de la línea vendida). **Provisional: a verificar con contador.**
+5. **Sin vales ni crédito en tienda**: `ChkReturnsRefundMethod` solo admite `EFECTIVO`, `TARJETA`, `TRANSFERENCIA` y `NINGUNO`. Si en el futuro se habilitan, habrá que reemplazar el CHECK (cambio no aditivo).
+
+### Notas
+
+- `"IdxCashSessionOpen"` (empleado + caja) queda redundante con el nuevo índice por caja, pero se mantiene: eliminarlo no sería aditivo.
+- La regla "cantidad devuelta acumulada ≤ cantidad vendida por línea" la valida el servicio del POS dentro de su transacción; un CHECK de fila no puede garantizarla.
+- Un solo egreso de caja por devolución: `UqCashMovementsReturnRefund` (único parcial por `ReturnId` cuando el tipo es `DEVOLUCION_EFECTIVO`).
+- **POS (`Squema.sql`)**: `docs/pos/2_pos_devoluciones_squema.sql` es la versión idempotente (`IF NOT EXISTS`, `CREATE OR REPLACE TRIGGER`) que Ferretería Caja debe copiar a `Ferreteria.PuntoVenta/Squema.sql`. Produce exactamente el mismo catálogo (columnas, tipos, defaults, constraints, índices y trigger) que esta migración; ver `tests-db/`.
+- Pruebas de constraints contra Postgres real: `npm run test:db` (requiere `DATABASE_URL` explícita a `localhost`/`127.0.0.1`; en CI corre contra el servicio Postgres ya migrado).
+- Próximo paso (fuera de esta migración): descontar devoluciones (`Returns.total` con `status = 'COMPLETADA'`) en las ventas netas del panel/API.
+
 ## Pendientes conocidos
 
 - El seed de Prisma inserta ahora el catálogo de `SaleUnits` y la presentación base `UNIDAD` de los productos de forma idempotente, alineado con `Squema.sql`.
