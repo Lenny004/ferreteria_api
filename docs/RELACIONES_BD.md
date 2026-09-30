@@ -1,5 +1,7 @@
 # Acciones referenciales revisadas
 
+`InventoryMovements.quantity` y `TotalCost` se almacenan como magnitudes positivas; `MovementType` determina si el movimiento es `ENTRADA` o `SALIDA`.
+
 ## Tablas agregadas por conteos físicos
 
 - `public."InventoryCounts"`: cabecera del conteo, alcance, estado y auditoría de usuarios web.

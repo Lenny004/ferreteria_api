@@ -1,6 +1,6 @@
 /**
  * Servicio de pedidos de la tienda en línea: checkout, historial y gestión admin.
- * El checkout descuenta stock, registra movimiento VENTA y vacía el carrito.
+ * El checkout descuenta stock, registra movimiento SALIDA_VENTA y vacía el carrito.
  */
 
 import { Prisma } from "@prisma/client";
@@ -10,6 +10,8 @@ import {
   resolveInitialPayment,
   type ShopPaymentMethod,
 } from "../shop-payments/shop-payments.service.js";
+import { movementMagnitude, signedMovementDelta } from "../inventory/movement-direction.js";
+import { syncStockAlert } from "../inventory/inventory.service.js";
 import { shopOrderInclude } from "./shop-order.include.js";
 
 export type CheckoutOptions = {
@@ -30,7 +32,7 @@ export const shopOrdersService = {
   /**
    * Convierte carrito en pedido PENDIENTE en transacción atómica.
    * Totales: `subtotal` = Σ (precio × qty); `taxAmount` = subtotal × IVA; `total` = subtotal + IVA.
-   * Por cada línea: movimiento VENTA, actualización de stock y alerta si queda bajo mínimo.
+   * Por cada línea: movimiento SALIDA_VENTA, actualización de stock y alerta si queda bajo mínimo.
    */
   async checkout(shopCustomerId: string, options: CheckoutOptions = {}) {
     const deliveryType = options.deliveryType ?? "RETIRO_TIENDA";
@@ -116,15 +118,18 @@ export const shopOrdersService = {
       });
 
       for (const item of cart) {
-        const qty = Number(item.quantity);
+        const qty = new Prisma.Decimal(item.quantity);
         const product = await tx.product.findUnique({ where: { id: item.productId } });
         if (!product) throw new NotFoundError("Producto no encontrado durante checkout");
-        const stockBefore = Number(product.currentStock);
-        if (stockBefore < qty) {
+        const stockBefore = new Prisma.Decimal(product.currentStock);
+        const delta = signedMovementDelta("SALIDA_VENTA", qty);
+        const stockAfter = stockBefore.add(delta);
+        if (stockAfter.isNegative()) {
           throw new BadRequestError(`Stock insuficiente para ${product.code}`);
         }
-        const stockAfter = stockBefore - qty;
-        const unitCost = Number(product.costPrice);
+        const unitCost = new Prisma.Decimal(product.costPrice);
+        const quantity = movementMagnitude(qty);
+        const totalCost = unitCost.mul(quantity).abs();
         await tx.product.update({
           where: { id: product.id },
           data: {
@@ -135,24 +140,16 @@ export const shopOrdersService = {
         await tx.inventoryMovement.create({
           data: {
             productId: product.id,
-            movementType: "VENTA",
-            quantity: -qty,
+            movementType: "SALIDA_VENTA",
+            quantity,
             unitCost,
-            totalCost: -(unitCost * qty),
+            totalCost,
             stockBefore,
             stockAfter,
             reason: `Pedido tienda ${created.id}`,
           },
         });
-        if (stockAfter <= Number(product.minStock)) {
-          await tx.stockAlert.create({
-            data: {
-              productId: product.id,
-              currentStock: stockAfter,
-              minStock: product.minStock,
-            },
-          });
-        }
+        await syncStockAlert(tx, product.id, stockAfter, new Prisma.Decimal(product.minStock));
       }
 
       await tx.shopCartItem.deleteMany({ where: { shopCustomerId } });
