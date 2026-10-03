@@ -15,10 +15,11 @@ const product = {
   salePrice: new Prisma.Decimal("7.50"),
 };
 
-const cartItem = { shopCustomerId: customerId, productId, quantity: new Prisma.Decimal("2"), product };
+const cartItem = { id: "850e8400-e29b-41d4-a716-446655440000", shopCustomerId: customerId, productId, quantity: new Prisma.Decimal("2"), product };
 
 const prismaMock = {
   $transaction: vi.fn(async (callback: (tx: typeof prismaMock) => unknown) => callback(prismaMock)),
+  $queryRaw: vi.fn().mockResolvedValue([]),
   setting: { findUnique: vi.fn() },
   shopCartItem: { findMany: vi.fn(), deleteMany: vi.fn() },
   shopOrder: { create: vi.fn() },
@@ -52,6 +53,7 @@ describe("movimiento de inventario del checkout de tienda", () => {
     const stockUpdate = prismaMock.product.update.mock.calls[0][0].data;
 
     expect(movement.movementType).toBe("SALIDA_VENTA");
+    expect(movement.shopOrderId).toBe("order-1");
     expect(movement.quantity).toEqual(new Prisma.Decimal("2"));
     expect(movement.totalCost).toEqual(new Prisma.Decimal("8.5"));
     expect(movement.stockBefore).toEqual(new Prisma.Decimal("3"));
@@ -59,6 +61,9 @@ describe("movimiento de inventario del checkout de tienda", () => {
     expect(stockUpdate.currentStock).toEqual(new Prisma.Decimal("1"));
     expect(prismaMock.stockAlert.findFirst).toHaveBeenCalled();
     expect(prismaMock.stockAlert.create).toHaveBeenCalledTimes(1);
+    expect(prismaMock.shopCartItem.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: [cartItem.id] }, shopCustomerId: customerId },
+    });
   });
 
   it("mantiene el error de stock insuficiente y no inicia el checkout", async () => {
@@ -66,9 +71,13 @@ describe("movimiento de inventario del checkout de tienda", () => {
       ...cartItem,
       product: { ...product, currentStock: new Prisma.Decimal("1") },
     }]);
+    prismaMock.product.findUnique.mockResolvedValueOnce({
+      ...product,
+      currentStock: new Prisma.Decimal("1"),
+    });
 
     await expect(shopOrdersService.checkout(customerId)).rejects.toThrow(/Stock insuficiente/);
-    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    expect(prismaMock.$transaction).toHaveBeenCalled();
     expect(prismaMock.inventoryMovement.create).not.toHaveBeenCalled();
   });
 });

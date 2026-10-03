@@ -9,6 +9,8 @@ import { AppError } from "./errors.js";
 export type AccessTokenPayload = {
   userId: string;
   role: string;
+  /** Versión de credenciales; los tokens antiguos sin esta claim se rechazan. */
+  tv: number;
 };
 
 function getJwtSecret(): string {
@@ -30,5 +32,5 @@ export function signAccessToken(payload: AccessTokenPayload): string {
 
 /** Verifica firma y expiración; lanza si el token es inválido o expiró. */
 export function verifyAccessToken(token: string): AccessTokenPayload {
-  return jwt.verify(token, getJwtSecret()) as AccessTokenPayload;
+  return jwt.verify(token, getJwtSecret(), { algorithms: ["HS256"] }) as AccessTokenPayload;
 }

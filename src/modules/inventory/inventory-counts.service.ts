@@ -35,7 +35,10 @@ const countDetailInclude = {
   },
 } as const;
 
-/** Opciones para soportar conteos extensos sin abandonar la transacción durante la captura. */
+/**
+ * Permite hasta 60 s porque un conteo de una familia puede insertar o actualizar
+ * miles de líneas y movimientos en una sola transacción administrativa.
+ */
 const INVENTORY_COUNT_TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 60_000 };
 
 type CountDetail = Prisma.InventoryCountGetPayload<{ include: typeof countDetailInclude }>;
