@@ -142,4 +142,10 @@ describe("WebUser que recibe órdenes de compra", () => {
       receivedByWebUserId: webUserId,
     });
   });
+
+  it("rechaza recibir sin usuario autenticado antes de abrir la transacción", async () => {
+    await expect(purchaseOrdersService.receive("a50e8400-e29b-41d4-a716-446655440000", {}, undefined as never))
+      .rejects.toMatchObject({ statusCode: 401 });
+    expect(prismaMock.purchaseOrder.update).not.toHaveBeenCalled();
+  });
 });

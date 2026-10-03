@@ -26,7 +26,6 @@ const orderInclude = {
     select: {
       id: true,
       username: true,
-      role: true,
     },
   },
   receivedByWebUser: {
@@ -186,7 +185,7 @@ export const purchaseOrdersService = {
             select: { id: true, firstName: true, lastName: true },
           },
           createdByWebUser: {
-            select: { id: true, username: true, role: true },
+            select: { id: true, username: true },
           },
           receivedByWebUser: {
             select: { id: true, username: true },
@@ -420,8 +419,10 @@ export const purchaseOrdersService = {
    *
    * @param id - UUID de la orden de compra.
    * @param input - Datos opcionales del documento de recepción.
-   * @param webUserId - Usuario web que solicita la recepción; su empleado activo vinculado atribuye el movimiento.
+   * @param webUserId - Usuario web autenticado que recibe la OC (obligatorio); se guarda en
+   *   `ReceivedByWebUserId` y su empleado activo vinculado, si existe, atribuye el movimiento.
    * @returns Orden recibida con sus detalles.
+   * @throws {UnauthorizedError} Si falta el usuario autenticado.
    * @throws {ConflictError} Si la orden ya fue recibida o está cancelada.
    * @throws {BadRequestError} Si la orden no tiene líneas o costos válidos.
    * @throws {NotFoundError} Si la orden o un producto no existe.
@@ -432,8 +433,9 @@ export const purchaseOrdersService = {
       supplierDocNumber?: string | null;
       supplierDocType?: string | null;
     } = {},
-    webUserId?: string,
+    webUserId: string,
   ) {
+    if (!webUserId) throw new UnauthorizedError("No autorizado: falta el usuario autenticado");
     return runWithTransactionRetry(async (tx) => {
       await lockPurchaseOrder(tx, id);
       const order = await tx.purchaseOrder.findUnique({

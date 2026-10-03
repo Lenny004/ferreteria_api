@@ -198,7 +198,7 @@ Es exclusivamente de lectura y no corrige datos.
 
 Migración **aditiva**: agrega `purchasing."PurchaseOrders"."ReceivedByWebUserId"`, su FK sin acciones de borrado/actualización y el índice `IdxPurchaseOrdersReceivedByWebUser`. No agrega columnas a `public."InventoryMovements"`; el receptor se resuelve mediante `InventoryMovements.PurchaseOrderId` → `PurchaseOrders.ReceivedByWebUserId`.
 
-La migración comienza con `SET lock_timeout = '5s'` para fallar rápido en vez de quedar en cola detrás de bloqueos del POS y bloquear a otros. Si falla por timeout, la migración queda marcada como fallida; reintentar con:
+La migración comienza con `SET LOCAL lock_timeout = '5s'` para fallar rápido en vez de quedar en cola detrás de bloqueos del POS y bloquear a otros. Se usa `SET LOCAL` (no `SET`) porque Prisma ejecuta cada migración en su propia transacción: el timeout termina con esa transacción y no se filtra a migraciones posteriores del mismo `prisma migrate deploy`. Si falla por timeout, la migración queda marcada como fallida; reintentar con:
 
 ```bash
 npx prisma migrate resolve --rolled-back 8_qa_notas_recepcion
