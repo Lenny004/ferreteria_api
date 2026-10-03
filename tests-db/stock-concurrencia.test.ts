@@ -105,13 +105,13 @@ describe("concurrencia real de inventario y tienda", () => {
 
   it("acepta una sola recepción concurrente y rechaza las siguientes", async () => {
     const results = await Promise.allSettled([
-      purchaseOrdersService.receive(ids.purchaseOrder),
-      purchaseOrdersService.receive(ids.purchaseOrder),
+      purchaseOrdersService.receive(ids.purchaseOrder, {}, ids.webUser),
+      purchaseOrdersService.receive(ids.purchaseOrder, {}, ids.webUser),
     ]);
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((result) => result.status === "rejected" && result.reason.statusCode === 409)).toHaveLength(1);
     const receivedBeforeThirdCall = await prisma.$queryRaw<Array<{ stock: string }>>`SELECT "CurrentStock"::text AS stock FROM public."Products" WHERE "id" = ${ids.receivingProduct}::uuid`;
-    await expect(purchaseOrdersService.receive(ids.purchaseOrder)).rejects.toMatchObject({ statusCode: 409 });
+    await expect(purchaseOrdersService.receive(ids.purchaseOrder, {}, ids.webUser)).rejects.toMatchObject({ statusCode: 409 });
     const receivedAfterThirdCall = await prisma.$queryRaw<Array<{ stock: string }>>`SELECT "CurrentStock"::text AS stock FROM public."Products" WHERE "id" = ${ids.receivingProduct}::uuid`;
     expect(receivedBeforeThirdCall[0].stock).toBe("6.000");
     expect(receivedAfterThirdCall[0].stock).toBe("6.000");

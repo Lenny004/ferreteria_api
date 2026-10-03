@@ -15,6 +15,7 @@ type PurchaseRaceFixture = {
   supplierId: string;
   orderId: string;
   detailId: string;
+  webUserId: string;
 };
 
 type ShopRaceFixture = {
@@ -43,6 +44,7 @@ async function createPurchaseRaceFixture(): Promise<PurchaseRaceFixture> {
     supplierId: randomUUID(),
     orderId: randomUUID(),
     detailId: randomUUID(),
+    webUserId: randomUUID(),
   };
   const suffix = fixture.orderId.slice(0, 8);
   await prisma.$executeRaw`INSERT INTO public."Families" ("id", "code", "name") VALUES (${fixture.familyId}::uuid, ${`FR${suffix}`}, 'QA race')`;
@@ -52,6 +54,8 @@ async function createPurchaseRaceFixture(): Promise<PurchaseRaceFixture> {
   await prisma.$executeRaw`INSERT INTO purchasing."Suppliers" ("id", "name") VALUES (${fixture.supplierId}::uuid, ${`Supplier race ${suffix}`})`;
   await prisma.$executeRaw`INSERT INTO purchasing."PurchaseOrders" ("id", "SupplierId", "EmployeeId", "status", "subtotal", "TaxAmount", "total") VALUES (${fixture.orderId}::uuid, ${fixture.supplierId}::uuid, ${fixture.employeeId}::uuid, 'CONFIRMADA', 10, 1.3, 11.3)`;
   await prisma.$executeRaw`INSERT INTO purchasing."PurchaseOrderDetails" ("id", "PurchaseOrderId", "ProductId", "quantity", "UnitCost", "TaxRate", "subtotal", "total") VALUES (${fixture.detailId}::uuid, ${fixture.orderId}::uuid, ${fixture.productId}::uuid, 2, 5, 0.13, 10, 11.3)`;
+  // La recepción exige el WebUser autenticado y lo guarda en `ReceivedByWebUserId`.
+  await prisma.$executeRaw`INSERT INTO system."WebUsers" ("id", "Username", "Email", "PasswordHash", "Role", "IsActive") VALUES (${fixture.webUserId}::uuid, ${`qa-po-race-${suffix}`}, ${`qa-po-race-${suffix}@example.com`}, 'not-used', 'ADMIN', TRUE)`;
   return fixture;
 }
 
@@ -61,6 +65,7 @@ async function deletePurchaseRaceFixture(fixture: PurchaseRaceFixture): Promise<
   await prisma.$executeRaw`DELETE FROM public."InventoryMovements" WHERE "ProductId" = ${fixture.productId}::uuid`;
   await prisma.$executeRaw`DELETE FROM purchasing."PurchaseOrderDetails" WHERE "PurchaseOrderId" = ${fixture.orderId}::uuid`;
   await prisma.$executeRaw`DELETE FROM purchasing."PurchaseOrders" WHERE "id" = ${fixture.orderId}::uuid`;
+  await prisma.$executeRaw`DELETE FROM system."WebUsers" WHERE "id" = ${fixture.webUserId}::uuid`;
   await prisma.$executeRaw`DELETE FROM purchasing."Suppliers" WHERE "id" = ${fixture.supplierId}::uuid`;
   await prisma.$executeRaw`DELETE FROM public."Products" WHERE "id" = ${fixture.productId}::uuid`;
   await prisma.$executeRaw`DELETE FROM hr."Employees" WHERE "id" = ${fixture.employeeId}::uuid`;
@@ -138,7 +143,7 @@ describe("transiciones de estado concurrentes", () => {
       try {
         const results = await Promise.allSettled([
           purchaseOrdersService.cancel(fixture.orderId),
-          purchaseOrdersService.receive(fixture.orderId),
+          purchaseOrdersService.receive(fixture.orderId, {}, fixture.webUserId),
         ]);
         expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
         expect(results.filter((result) => result.status === "rejected" && result.reason.statusCode === 409)).toHaveLength(1);

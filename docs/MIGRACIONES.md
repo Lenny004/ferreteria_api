@@ -179,7 +179,7 @@ Bloqueos aproximados de las sentencias de movimientos:
 - `VALIDATE CONSTRAINT`: `SHARE UPDATE EXCLUSIVE`; permite lecturas y escrituras normales mientras valida.
 - `CREATE INDEX "IdxInvMovShopOrder"`: `SHARE`; bloquea escrituras sobre `InventoryMovements` mientras se construye. No se usa `CONCURRENTLY` porque Prisma ejecuta la migración dentro de una transacción.
 
-Ejecutar `prisma migrate deploy` con el POS sin ventas, preferiblemente fuera de horario y con respaldo previo.
+Las migraciones **6 y 7 deben ejecutarse con el POS sin ventas**, fuera de horario y con respaldo previo. Esto es obligatorio porque 6 modifica la definición de tablas compartidas y 7 valida/indiza una tabla escrita por cada venta del POS.
 Para detectar pagos pendientes duplicados sin modificar datos:
 
 ```sql
@@ -193,6 +193,19 @@ HAVING COUNT(*) > 1;
 La consulta operativa para detectar pedidos cancelados sin reingreso está en
 [docs/consultas/pedidos-cancelados-sin-reingreso.sql](consultas/pedidos-cancelados-sin-reingreso.sql).
 Es exclusivamente de lectura y no corrige datos.
+
+## `8_qa_notas_recepcion`
+
+Migración **aditiva**: agrega `purchasing."PurchaseOrders"."ReceivedByWebUserId"`, su FK sin acciones de borrado/actualización y el índice `IdxPurchaseOrdersReceivedByWebUser`. No agrega columnas a `public."InventoryMovements"`; el receptor se resuelve mediante `InventoryMovements.PurchaseOrderId` → `PurchaseOrders.ReceivedByWebUserId`.
+
+La migración comienza con `SET LOCAL lock_timeout = '5s'` para fallar rápido en vez de quedar en cola detrás de bloqueos del POS y bloquear a otros. Se usa `SET LOCAL` (no `SET`) porque Prisma ejecuta cada migración en su propia transacción: el timeout termina con esa transacción y no se filtra a migraciones posteriores del mismo `prisma migrate deploy`. Si falla por timeout, la migración queda marcada como fallida; reintentar con:
+
+```bash
+npx prisma migrate resolve --rolled-back 8_qa_notas_recepcion
+npx prisma migrate deploy
+```
+
+El reintento debe hacerse en una ventana con el POS inactivo y con respaldo previo.
 
 ## Pendientes conocidos
 

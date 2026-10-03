@@ -179,6 +179,8 @@ En la tienda, el pago con tarjeta es actualmente una intención pendiente: no se
 - Flujo OC: `BORRADOR` → `CONFIRMADA` → `RECIBIDA` → `CANCELADA`
 - Al recibir: actualiza stock y **costo promedio ponderado** en `Product.costPrice`
 - Al crear una OC, el servicio usa el empleado activo vinculado al usuario autenticado cuando existe. El empleado es opcional para `ADMIN` y `OWNER`; siempre se registra el WebUser creador en `CreatedByWebUserId`.
+- Al recibir una OC, se registra `ReceivedByWebUserId`; `ReceivedById` conserva el empleado activo cuando existe. Las respuestas de detalle y listado incluyen `createdByWebUser` y `receivedByWebUser` con `id` y `username`.
+- El WebUser receptor de un movimiento `ENTRADA_COMPRA` se obtiene por `InventoryMovements.PurchaseOrderId` → `PurchaseOrders.ReceivedByWebUserId`. No se agrega una columna a `InventoryMovements`, porque es una tabla caliente del POS.
 </details>
 
 <details>
@@ -449,6 +451,13 @@ Alineado a `FERRETERIA_PLAN_FINALIZACION_APP.md`:
 - `GET /api/v1/shop/auth/csrf`: requiere sesión tienda por Bearer o `fer_shop_access`, rota `fer_shop_csrf` y devuelve `{ csrfToken }`.
 - `GET` autenticado por cookie no requiere CSRF. Las mutaciones autenticadas por cookie sí requieren `X-CSRF-Token` igual a `fer_shop_csrf`; Bearer no requiere CSRF. La firma HMAC usa un dominio distinto (`shop-csrf.`) al administrativo.
 
+### Pedidos de tienda
+
+- `PATCH /api/v1/shop-orders/:id` — el personal `ADMIN` u `OWNER` puede enviar `status`, `adminNotes` (máximo 2000 caracteres) y `cancellationNote` (opcional, recortada y de 1 a 300 caracteres).
+- `cancellationNote` solo es válida junto con `status = CANCELADA`. Si el pago está `EN_VERIFICACION` y el pedido aún no está cancelado, omitirla responde `409` y no repone inventario.
+- Al cancelar con nota, el backend agrega una línea a `AdminNotes`: `Cancelación con pago en verificación: <nota>` para pagos en verificación o `Cancelación: <nota>` en los demás casos. Si ya había notas, las conserva y separa la línea con un salto de línea.
+- Cancelar nuevamente un pedido `CANCELADA` es idempotente: no repone inventario ni vuelve a agregar `cancellationNote`. `AdminNotes` es `TEXT`, por lo que las notas existentes no cuentan contra el límite de 300 ni se truncan; el límite de 2000 aplica únicamente al `adminNotes` enviado por el cliente.
+
 ### Pagos de pedidos de tienda
 
 - `POST /api/v1/shop/orders/:id/pay` — **confirmar pago** desde una sesión del panel; solo `ADMIN` u `OWNER`. Si la sesión del panel usa cookie, también requiere `X-CSRF-Token` válido.
@@ -459,7 +468,7 @@ Alineado a `FERRETERIA_PLAN_FINALIZACION_APP.md`:
 - `POST /api/v1/shop/orders/:id/transfer-reference` — el dueño del pedido registra o reemplaza `{ "reference": "...", "notes": "..." }` cuando el método es `TRANSFERENCIA`, el pedido no está cancelado y el pago está `PENDIENTE` o `EN_VERIFICACION`.
 - La referencia queda en el pago pendiente como `CustomerReference`/`CustomerReferenceAt`, el pedido pasa a `EN_VERIFICACION` y nunca se marca `PAGADO` ni `COMPLETADO` desde la tienda. La confirmación final la hace el personal desde el panel en **Pedidos de tienda**; si no envía `providerRef`, se usa la referencia del cliente.
 - `GET /api/v1/shop-orders/:id` — detalle del panel para `ADMIN`, `ACCOUNTANT` u `OWNER`; el listado administrativo también admite `paymentStatus`.
-- Al cancelar un pedido con `paymentStatus = EN_VERIFICACION`, el personal debe enviar una nota administrativa nueva y no vacía; sin ella la API responde `400` y no repone inventario.
+- Al cancelar un pedido con `paymentStatus = EN_VERIFICACION`, el personal debe enviar `cancellationNote`; sin ella la API responde `409` y no repone inventario.
 
 Tras desplegar esta versión, los tokens emitidos antes de incluir el claim `tv` se rechazan. Todos los usuarios deben iniciar sesión nuevamente una vez.
 
