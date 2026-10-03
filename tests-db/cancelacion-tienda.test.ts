@@ -41,10 +41,10 @@ async function createFixture(): Promise<Fixture> {
 
 /** Elimina el fixture respetando las dependencias y la FK del movimiento nuevo. */
 async function deleteFixture(fixture: Fixture): Promise<void> {
+  await prisma.$executeRaw`DELETE FROM public."InventoryMovements" WHERE "ProductId" IN (${fixture.productIds[0]}::uuid, ${fixture.productIds[1]}::uuid)`;
   await prisma.$executeRaw`DELETE FROM system."ShopOrders" WHERE "ShopCustomerId" = ${fixture.customerId}::uuid`;
   await prisma.$executeRaw`DELETE FROM system."ShopCartItems" WHERE "ShopCustomerId" = ${fixture.customerId}::uuid`;
   await prisma.$executeRaw`DELETE FROM public."StockAlerts" WHERE "ProductId" IN (${fixture.productIds[0]}::uuid, ${fixture.productIds[1]}::uuid)`;
-  await prisma.$executeRaw`DELETE FROM public."InventoryMovements" WHERE "ProductId" IN (${fixture.productIds[0]}::uuid, ${fixture.productIds[1]}::uuid)`;
   await prisma.$executeRaw`DELETE FROM system."WebUsers" WHERE "id" = ${fixture.webUserId}::uuid`;
   await prisma.$executeRaw`DELETE FROM system."ShopCustomers" WHERE "id" = ${fixture.customerId}::uuid`;
   await prisma.$executeRaw`DELETE FROM public."Products" WHERE "id" IN (${fixture.productIds[0]}::uuid, ${fixture.productIds[1]}::uuid)`;
@@ -143,6 +143,44 @@ describe("cancelación de pedidos de tienda con reposición", () => {
         FROM system."ShopOrders" so WHERE so."id" = ${order.id}::uuid`;
       expect(state[0].status).toBe("ENTREGADA");
       expect(Number(state[0].returns)).toBe(0);
+    } finally {
+      await deleteFixture(fixture);
+    }
+  });
+
+  it("exige una nota nueva al cancelar un pago en verificación", { timeout: 30_000 }, async () => {
+    const fixture = await createFixture();
+    try {
+      const order = await checkout(fixture);
+      await shopOrdersService.submitTransferReference(fixture.customerId, order.id, { reference: "TRF-NOTA" });
+
+      await expect(shopOrdersService.updateAdmin(order.id, { status: "CANCELADA" }))
+        .rejects.toMatchObject({ statusCode: 400 });
+      const withoutNote = await prisma.$queryRaw<Array<{ status: string; returns: bigint }>>`
+        SELECT "Status" AS status,
+          (SELECT COUNT(*) FROM public."InventoryMovements" im
+           WHERE im."ShopOrderId" = so."id" AND im."MovementType" = 'ENTRADA_DEVOLUCION') AS returns
+        FROM system."ShopOrders" so WHERE so."id" = ${order.id}::uuid`;
+      expect(withoutNote[0].status).toBe("PENDIENTE");
+      expect(Number(withoutNote[0].returns)).toBe(0);
+
+      await shopOrdersService.updateAdmin(order.id, { adminNotes: "Nota previa" });
+      await expect(shopOrdersService.updateAdmin(order.id, {
+        status: "CANCELADA",
+        adminNotes: " Nota previa ",
+      })).rejects.toMatchObject({ statusCode: 400 });
+
+      await shopOrdersService.updateAdmin(order.id, {
+        status: "CANCELADA",
+        adminNotes: "Nota nueva de cancelación",
+      });
+      const withNote = await prisma.$queryRaw<Array<{ status: string; adminNotes: string | null; returns: bigint }>>`
+        SELECT "Status" AS status, "AdminNotes" AS "adminNotes",
+          (SELECT COUNT(*) FROM public."InventoryMovements" im
+           WHERE im."ShopOrderId" = so."id" AND im."MovementType" = 'ENTRADA_DEVOLUCION') AS returns
+        FROM system."ShopOrders" so WHERE so."id" = ${order.id}::uuid`;
+      expect(withNote[0]).toMatchObject({ status: "CANCELADA", adminNotes: "Nota nueva de cancelación" });
+      expect(Number(withNote[0].returns)).toBe(2);
     } finally {
       await deleteFixture(fixture);
     }

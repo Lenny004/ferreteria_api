@@ -56,6 +56,23 @@ describe("recepción de órdenes de compra", () => {
     expect(createMock).toHaveBeenCalledWith({
       supplierId,
       lines: [{ productId, quantity: 1, unitCost: 2 }],
-    }, userId);
+    }, { userId, role: "ADMIN" });
+  });
+
+  it("pasa el actor OWNER al servicio para crear la OC", async () => {
+    prismaMock.webUser.findUnique.mockResolvedValueOnce({ isActive: true, role: "OWNER", tokenVersion: 0 });
+    const supplierId = "750e8400-e29b-41d4-a716-446655440000";
+    const productId = "850e8400-e29b-41d4-a716-446655440000";
+
+    const response = await request(app)
+      .post("/api/v1/purchase-orders")
+      .set("Authorization", `Bearer ${signAccessToken({ userId, role: "OWNER", tv: 0 })}`)
+      .send({ supplierId, lines: [{ productId, quantity: 1, unitCost: 2 }] });
+
+    expect(response.status).toBe(201);
+    expect(createMock).toHaveBeenCalledWith({
+      supplierId,
+      lines: [{ productId, quantity: 1, unitCost: 2 }],
+    }, { userId, role: "OWNER" });
   });
 });

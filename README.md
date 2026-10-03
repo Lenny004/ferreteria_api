@@ -178,6 +178,7 @@ En la tienda, el pago con tarjeta es actualmente una intención pendiente: no se
 - `Supplier`, `PurchaseOrder`, `PurchaseOrderDetail`
 - Flujo OC: `BORRADOR` → `CONFIRMADA` → `RECIBIDA` → `CANCELADA`
 - Al recibir: actualiza stock y **costo promedio ponderado** en `Product.costPrice`
+- Al crear una OC, el servicio usa el empleado activo vinculado al usuario autenticado cuando existe. El empleado es opcional para `ADMIN` y `OWNER`; siempre se registra el WebUser creador en `CreatedByWebUserId`.
 </details>
 
 <details>
@@ -458,6 +459,7 @@ Alineado a `FERRETERIA_PLAN_FINALIZACION_APP.md`:
 - `POST /api/v1/shop/orders/:id/transfer-reference` — el dueño del pedido registra o reemplaza `{ "reference": "...", "notes": "..." }` cuando el método es `TRANSFERENCIA`, el pedido no está cancelado y el pago está `PENDIENTE` o `EN_VERIFICACION`.
 - La referencia queda en el pago pendiente como `CustomerReference`/`CustomerReferenceAt`, el pedido pasa a `EN_VERIFICACION` y nunca se marca `PAGADO` ni `COMPLETADO` desde la tienda. La confirmación final la hace el personal desde el panel en **Pedidos de tienda**; si no envía `providerRef`, se usa la referencia del cliente.
 - `GET /api/v1/shop-orders/:id` — detalle del panel para `ADMIN`, `ACCOUNTANT` u `OWNER`; el listado administrativo también admite `paymentStatus`.
+- Al cancelar un pedido con `paymentStatus = EN_VERIFICACION`, el personal debe enviar una nota administrativa nueva y no vacía; sin ella la API responde `400` y no repone inventario.
 
 Tras desplegar esta versión, los tokens emitidos antes de incluir el claim `tv` se rechazan. Todos los usuarios deben iniciar sesión nuevamente una vez.
 

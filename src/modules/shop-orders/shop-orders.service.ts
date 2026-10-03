@@ -8,6 +8,7 @@ import { prisma } from "../../lib/prisma.js";
 import { BadRequestError, ConflictError, NotFoundError } from "../../shared/errors.js";
 import {
   resolveInitialPayment,
+  selectSinglePendingPayment,
   type ShopPaymentMethod,
 } from "../shop-payments/shop-payments.service.js";
 import { movementMagnitude, signedMovementDelta } from "../inventory/movement-direction.js";
@@ -37,8 +38,8 @@ type RestockSummary = {
 
 /**
  * Calcula la cantidad aún no devuelta y el costo promedio de las salidas del pedido.
- * Incluye movimientos antiguos sin `ShopOrderId` únicamente cuando conservan el
- * motivo exacto usado por el checkout anterior.
+ * Incluye movimientos antiguos sin `ShopOrderId` cuando conservan el motivo exacto
+ * del checkout o de la cancelación anterior.
  *
  * @param tx - Cliente Prisma de la transacción activa.
  * @param orderId - UUID del pedido cancelado.
@@ -57,8 +58,10 @@ async function calculatePendingRestock(
           "ShopOrderId" = ${orderId}::uuid
           OR (
             "ShopOrderId" IS NULL
-            AND "MovementType" = 'SALIDA_VENTA'
-            AND "reason" = ${`Pedido tienda ${orderId}`}
+            AND (
+              ("MovementType" = 'SALIDA_VENTA' AND "reason" = ${`Pedido tienda ${orderId}`})
+              OR ("MovementType" = 'ENTRADA_DEVOLUCION' AND "reason" = ${`Cancelación pedido tienda ${orderId}`})
+            )
           )
         )
       ORDER BY "ProductId", "CreatedAt", "id"`,
@@ -99,6 +102,9 @@ export const shopOrdersService = {
    * Por cada línea: movimiento SALIDA_VENTA, actualización de stock y alerta si queda en o bajo mínimo.
    * Bloquea primero al cliente y luego los productos para serializar doble clics
    * y calcular todos los saldos desde lecturas posteriores al bloqueo.
+   *
+   * El pago inicial se crea anidado con el pedido nuevo: un pedido recién insertado
+   * en esta transacción no puede tener otro pago pendiente.
    *
    * @param shopCustomerId - UUID del cliente autenticado.
    * @param options - Entrega, notas y método de pago validados.
@@ -316,6 +322,7 @@ export const shopOrdersService = {
 
   /**
    * Actualiza estado o notas admin bajo bloqueo; no reactiva pedidos cancelados.
+   * Cancelar durante EN_VERIFICACION exige una nota nueva antes de reponer inventario.
    * Al cancelar, bloquea primero el pedido y después los productos. Checkout,
    * recepción de OC y esta operación comparten el orden de productos entre sus
    * fases de stock; `payOrder` solo bloquea el pedido, por lo que no introduce
@@ -348,6 +355,12 @@ export const shopOrdersService = {
       }
       if (data.status === "CANCELADA" && existing.status === "ENTREGADA") {
         throw new ConflictError("Pedido entregado: registra una devolución en lugar de cancelar");
+      }
+      const cancellationNote = data.adminNotes?.trim();
+      if (data.status === "CANCELADA" && existing.status !== "CANCELADA" && existing.paymentStatus === "EN_VERIFICACION") {
+        if (!cancellationNote || cancellationNote === existing.adminNotes?.trim()) {
+          throw new BadRequestError("Indica una nota para cancelar un pedido con pago en verificación");
+        }
       }
 
       if (data.status === "CANCELADA" && existing.status !== "CANCELADA") {
@@ -401,7 +414,11 @@ export const shopOrdersService = {
         where: { id: orderId },
         data: {
           ...(data.status !== undefined ? { status: data.status } : {}),
-          ...(data.adminNotes !== undefined ? { adminNotes: data.adminNotes } : {}),
+          ...(data.status === "CANCELADA" && cancellationNote
+            ? { adminNotes: cancellationNote }
+            : data.adminNotes !== undefined
+              ? { adminNotes: data.adminNotes }
+              : {}),
           updatedAt: new Date(),
         },
         include: shopOrderInclude,
@@ -411,6 +428,7 @@ export const shopOrdersService = {
 
   /**
    * Registra o reemplaza la referencia de transferencia enviada por el dueño del pedido.
+   * Bajo el bloqueo del pedido actualiza únicamente el pago PENDIENTE más reciente.
    * La operación solo deja el pago en verificación; nunca confirma ni completa el pedido.
    *
    * @param shopCustomerId - UUID del cliente autenticado.
@@ -430,7 +448,7 @@ export const shopOrdersService = {
       if (!ownsOrder) throw new NotFoundError("Pedido no encontrado");
       const order = await tx.shopOrder.findFirst({
         where: { id: orderId, shopCustomerId },
-        include: { payments: true },
+        include: { payments: { orderBy: [{ createdAt: "desc" }, { id: "desc" }] } },
       });
       if (!order) throw new NotFoundError("Pedido no encontrado");
       if (order.status === "CANCELADA") {
@@ -443,7 +461,7 @@ export const shopOrdersService = {
         throw new ConflictError("El estado de pago del pedido no permite registrar una referencia");
       }
 
-      const pendingPayment = order.payments.find((payment) => payment.status === "PENDIENTE");
+      const pendingPayment = selectSinglePendingPayment(order.payments);
       const now = new Date();
       if (pendingPayment) {
         // Solo se registra la referencia: el pago sigue PENDIENTE hasta que el personal lo confirme.

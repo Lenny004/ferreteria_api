@@ -15,6 +15,24 @@ export type ShopPaymentMethod =
   | "CONTRA_ENTREGA";
 
 /**
+ * Selecciona el único pago pendiente más reciente de un pedido ya bloqueado.
+ * La detección explícita de duplicados evita confirmar o actualizar una fila arbitraria.
+ *
+ * @param payments - Pagos ordenados por fecha e identificador descendentes.
+ * @returns El pago pendiente más reciente o `undefined` si no existe.
+ * @throws {ConflictError} Si el pedido tiene más de un pago pendiente.
+ */
+export function selectSinglePendingPayment<T extends { id: string; status: string }>(
+  payments: readonly T[],
+): T | undefined {
+  const pendingPayments = payments.filter((payment) => payment.status === "PENDIENTE");
+  if (pendingPayments.length > 1) {
+    throw new ConflictError("El pedido tiene más de un pago pendiente; debe corregirse antes de continuar");
+  }
+  return pendingPayments[0];
+}
+
+/**
  * Resuelve el estado inicial del pago elegido en checkout.
  * TODO(pasarela): integrar y verificar una pasarela real; por ahora TARJETA
  * queda PENDIENTE y solo personal autorizado confirma manualmente el pago.
@@ -60,6 +78,7 @@ export function resolveInitialPayment(
 export const shopPaymentsService = {
   /**
    * Confirma manualmente el pago de un pedido desde el panel administrativo.
+   * Bajo el bloqueo del pedido selecciona de forma determinista un único pago PENDIENTE.
    * El pedido se bloquea antes de validar estado para que la operación sea idempotente
    * frente a doble clic y registre el usuario y la hora de confirmación.
    *
@@ -85,7 +104,7 @@ export const shopPaymentsService = {
       await lockShopOrder(tx, orderId);
       const order = await tx.shopOrder.findUnique({
         where: { id: orderId },
-        include: { payments: { orderBy: { createdAt: "desc" } } },
+        include: { payments: { orderBy: [{ createdAt: "desc" }, { id: "desc" }] } },
       });
       if (!order) throw new NotFoundError("Pedido no encontrado");
       if (order.paymentStatus === "PAGADO") throw new ConflictError("El pedido ya está pagado");
@@ -94,7 +113,7 @@ export const shopPaymentsService = {
         throw new ConflictError("El estado de pago del pedido no permite confirmarlo");
       }
 
-      const pendingPayment = order.payments.find((p) => p.status === "PENDIENTE");
+      const pendingPayment = selectSinglePendingPayment(order.payments);
       const storedReference = pendingPayment?.customerReference ?? null;
       const verifiedReference = storedReference?.trim() ?? null;
       const expectedReference = data.expectedCustomerReference?.trim() ?? data.expectedCustomerReference;

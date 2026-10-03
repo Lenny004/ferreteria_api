@@ -2,6 +2,9 @@
  * Include Prisma compartido para pedidos de tienda (listado, detalle, checkout).
  */
 
+/** Orden estable de pagos para que el pago más reciente sea determinista. */
+const paymentsOrderBy = [{ createdAt: "desc" as const }, { id: "desc" as const }];
+
 export const shopOrderInclude = {
   lines: {
     include: {
@@ -14,7 +17,7 @@ export const shopOrderInclude = {
     select: { id: true, email: true, fullName: true, phone: true },
   },
   payments: {
-    orderBy: { createdAt: "desc" as const },
+    orderBy: paymentsOrderBy,
   },
 } as const;
 
@@ -23,7 +26,7 @@ export const shopOrderClientInclude = {
   lines: shopOrderInclude.lines,
   shopCustomer: shopOrderInclude.shopCustomer,
   payments: {
-    orderBy: { createdAt: "desc" as const },
+    orderBy: paymentsOrderBy,
     select: {
       id: true,
       shopOrderId: true,

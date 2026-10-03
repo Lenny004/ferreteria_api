@@ -86,6 +86,8 @@ async function createShopRaceFixture(): Promise<ShopRaceFixture> {
 
 /** Elimina el pedido y las identidades usadas por una carrera de pagos. */
 async function deleteShopRaceFixture(fixture: ShopRaceFixture): Promise<void> {
+  await prisma.$executeRaw`DELETE FROM public."InventoryMovements" WHERE "ShopOrderId" = ${fixture.orderId}::uuid`;
+  await prisma.$executeRaw`DELETE FROM system."ShopPayments" WHERE "ShopOrderId" = ${fixture.orderId}::uuid`;
   await prisma.$executeRaw`DELETE FROM system."ShopOrders" WHERE "id" = ${fixture.orderId}::uuid`;
   await prisma.$executeRaw`DELETE FROM system."ShopCustomers" WHERE "id" = ${fixture.customerId}::uuid`;
   await prisma.$executeRaw`DELETE FROM system."WebUsers" WHERE "id" = ${fixture.webUserId}::uuid`;
@@ -113,10 +115,10 @@ async function createTransferFlowFixture(): Promise<TransferFlowFixture> {
 
 /** Elimina los datos del flujo de transferencia después de verificar sus efectos. */
 async function deleteTransferFlowFixture(fixture: TransferFlowFixture): Promise<void> {
+  await prisma.$executeRaw`DELETE FROM public."InventoryMovements" WHERE "ProductId" = ${fixture.productId}::uuid`;
   await prisma.$executeRaw`DELETE FROM system."ShopOrders" WHERE "ShopCustomerId" = ${fixture.customerId}::uuid`;
   await prisma.$executeRaw`DELETE FROM system."ShopCartItems" WHERE "ShopCustomerId" = ${fixture.customerId}::uuid`;
   await prisma.$executeRaw`DELETE FROM public."StockAlerts" WHERE "ProductId" = ${fixture.productId}::uuid`;
-  await prisma.$executeRaw`DELETE FROM public."InventoryMovements" WHERE "ProductId" = ${fixture.productId}::uuid`;
   await prisma.$executeRaw`DELETE FROM system."ShopCustomers" WHERE "id" = ${fixture.customerId}::uuid`;
   await prisma.$executeRaw`DELETE FROM system."WebUsers" WHERE "id" = ${fixture.webUserId}::uuid`;
   await prisma.$executeRaw`DELETE FROM public."Products" WHERE "id" = ${fixture.productId}::uuid`;

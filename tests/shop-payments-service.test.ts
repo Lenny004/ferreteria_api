@@ -77,4 +77,19 @@ describe("confirmación de pagos con referencia observada", () => {
     await expect(shopPaymentsService.payOrder(orderId, {}, webUserId)).resolves.toBeDefined();
     expect(prismaMock.shopPayment.update).toHaveBeenCalled();
   });
+
+  it("responde 409 cuando hay más de un pago pendiente", async () => {
+    const order = pendingOrder(null);
+    prismaMock.shopOrder.findUnique.mockResolvedValueOnce({
+      ...order,
+      payments: [
+        ...order.payments,
+        { ...order.payments[0], id: "b50e8400-e29b-41d4-a716-446655440000" },
+      ],
+    });
+
+    await expect(shopPaymentsService.payOrder(orderId, {}, webUserId))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(prismaMock.shopPayment.update).not.toHaveBeenCalled();
+  });
 });

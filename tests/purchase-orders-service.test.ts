@@ -36,9 +36,10 @@ describe("empleado autenticado al crear órdenes de compra", () => {
   });
 
   it("usa el empleado activo vinculado al WebUser", async () => {
-    await purchaseOrdersService.create(input(), webUserId);
+    await purchaseOrdersService.create(input(), { userId: webUserId, role: "ADMIN" });
 
     expect(prismaMock.purchaseOrder.create.mock.calls[0][0].data.employeeId).toBe(employeeId);
+    expect(prismaMock.purchaseOrder.create.mock.calls[0][0].data.createdByWebUserId).toBe(webUserId);
   });
 
   it.each([
@@ -49,8 +50,21 @@ describe("empleado autenticado al crear órdenes de compra", () => {
     // Sin vínculo el servicio no consulta empleados: no dejar respuestas "once" pendientes para el siguiente caso.
     if (linkedId) prismaMock.employee.findUnique.mockResolvedValueOnce({ id: employeeId, isActive: active });
 
-    await expect(purchaseOrdersService.create(input(), webUserId))
+    await expect(purchaseOrdersService.create(input(), { userId: webUserId, role: "ACCOUNTANT" }))
       .rejects.toThrow("Tu usuario no está vinculado a un empleado activo");
     expect(prismaMock.purchaseOrder.create).not.toHaveBeenCalled();
+  });
+
+  it.each(["ADMIN", "OWNER"])("permite crear sin empleado para %s", async (role) => {
+    prismaMock.webUser.findUnique.mockResolvedValueOnce({ employeeId: null });
+
+    await purchaseOrdersService.create(input(), { userId: webUserId, role });
+
+    expect(prismaMock.purchaseOrder.create.mock.calls[0][0].data.employeeId).toBeNull();
+    expect(prismaMock.purchaseOrder.create.mock.calls[0][0].data.createdByWebUserId).toBe(webUserId);
+  });
+
+  it("rechaza una identidad ausente antes de abrir la transacción", async () => {
+    await expect(purchaseOrdersService.create(input(), undefined as never)).rejects.toMatchObject({ statusCode: 401 });
   });
 });

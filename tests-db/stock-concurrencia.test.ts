@@ -47,10 +47,10 @@ async function createFixtures(): Promise<void> {
 
 /** Elimina fixtures y efectos dependientes aun si un caso falla parcialmente. */
 async function deleteFixtures(): Promise<void> {
+  await prisma.$executeRaw`DELETE FROM public."InventoryMovements" WHERE "ProductId" IN (${ids.product}::uuid, ${ids.receivingProduct}::uuid, ${ids.checkoutProduct}::uuid, ${ids.paymentProduct}::uuid)`;
   await prisma.$executeRaw`DELETE FROM system."ShopOrders" WHERE "ShopCustomerId" IN (${ids.customer}::uuid, ${ids.paymentCustomer}::uuid)`;
   await prisma.$executeRaw`DELETE FROM system."ShopCartItems" WHERE "ShopCustomerId" IN (${ids.customer}::uuid, ${ids.paymentCustomer}::uuid)`;
   await prisma.$executeRaw`DELETE FROM public."StockAlerts" WHERE "ProductId" IN (${ids.product}::uuid, ${ids.receivingProduct}::uuid, ${ids.checkoutProduct}::uuid, ${ids.paymentProduct}::uuid)`;
-  await prisma.$executeRaw`DELETE FROM public."InventoryMovements" WHERE "ProductId" IN (${ids.product}::uuid, ${ids.receivingProduct}::uuid, ${ids.checkoutProduct}::uuid, ${ids.paymentProduct}::uuid)`;
   await prisma.$executeRaw`DELETE FROM purchasing."PurchaseOrderDetails" WHERE "PurchaseOrderId" = ${ids.purchaseOrder}::uuid`;
   await prisma.$executeRaw`DELETE FROM purchasing."PurchaseOrders" WHERE "id" = ${ids.purchaseOrder}::uuid`;
   await prisma.$executeRaw`DELETE FROM purchasing."Suppliers" WHERE "id" = ${ids.supplier}::uuid`;

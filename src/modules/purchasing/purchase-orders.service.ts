@@ -5,7 +5,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
-import { BadRequestError, ConflictError, NotFoundError } from "../../shared/errors.js";
+import { BadRequestError, ConflictError, NotFoundError, UnauthorizedError } from "../../shared/errors.js";
 import { lockProducts, lockPurchaseOrder } from "../../shared/stock-locks.js";
 import { runWithTransactionRetry } from "../../shared/transaction-retry.js";
 import { syncStockAlert } from "../inventory/inventory.service.js";
@@ -15,6 +15,20 @@ export type PurchaseOrderStatus = "BORRADOR" | "CONFIRMADA" | "RECIBIDA" | "CANC
 const DEFAULT_TAX_RATE = 0.13;
 
 const orderInclude = {
+  employee: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+    },
+  },
+  createdByWebUser: {
+    select: {
+      id: true,
+      username: true,
+      role: true,
+    },
+  },
   supplier: {
     select: {
       id: true,
@@ -47,6 +61,12 @@ type OrderLineInput = {
   unitCost: number;
   taxRate?: number;
   notes?: string | null;
+};
+
+/** Identidad administrativa que origina una orden de compra. */
+export type PurchaseOrderActor = {
+  userId: string;
+  role: string;
 };
 
 function toDecimal(value: number | string): Prisma.Decimal {
@@ -156,6 +176,12 @@ export const purchaseOrdersService = {
       prisma.purchaseOrder.findMany({
         where,
         include: {
+          employee: {
+            select: { id: true, firstName: true, lastName: true },
+          },
+          createdByWebUser: {
+            select: { id: true, username: true, role: true },
+          },
           supplier: { select: { id: true, name: true, nit: true, country: true } },
           _count: { select: { details: true } },
         },
@@ -179,13 +205,15 @@ export const purchaseOrdersService = {
   },
 
   /**
-   * Crea una OC en BORRADOR usando exclusivamente el empleado activo vinculado
-   * al WebUser autenticado, dentro de una transacción con reintento.
+   * Crea una OC en BORRADOR usando el empleado activo vinculado al WebUser cuando existe.
+   * ADMIN y OWNER pueden crearla sin empleado y siempre se registra el WebUser creador;
+   * la operación se ejecuta dentro de una transacción con reintento.
    *
    * @param input - Proveedor, líneas y datos administrativos validados.
-   * @param webUserId - UUID del usuario autenticado del panel.
+   * @param actor - Identidad y rol del usuario autenticado del panel.
+   * @throws {UnauthorizedError} Si falta la identidad autenticada.
+   * @throws {BadRequestError} Si un rol distinto de ADMIN/OWNER no tiene empleado activo vinculado.
    * @returns Orden creada con proveedor, líneas y productos.
-   * @throws {BadRequestError} Si faltan líneas o el usuario no tiene empleado activo vinculado.
    * @throws {NotFoundError} Si el proveedor no existe o está inactivo.
    */
   async create(
@@ -197,8 +225,9 @@ export const purchaseOrdersService = {
       expectedDate?: string | null;
       lines: OrderLineInput[];
     },
-    webUserId?: string,
+    actor: PurchaseOrderActor,
   ) {
+    if (!actor?.userId || !actor.role) throw new UnauthorizedError("No autorizado: falta el usuario autenticado");
     if (!input.lines?.length) throw new BadRequestError("La orden debe tener al menos una línea");
     const { detailRows, subtotal, taxAmount, total } = computeOrderTotals(input.lines);
 
@@ -208,8 +237,8 @@ export const purchaseOrdersService = {
         throw new NotFoundError("Proveedor no encontrado o inactivo");
       }
 
-      const employeeId = await resolveReceivingEmployeeId(tx, webUserId);
-      if (!employeeId) {
+      const employeeId = await resolveReceivingEmployeeId(tx, actor.userId);
+      if (!employeeId && !["ADMIN", "OWNER"].includes(actor.role)) {
         throw new BadRequestError("Tu usuario no está vinculado a un empleado activo; vincúlalo para crear órdenes de compra");
       }
 
@@ -226,6 +255,7 @@ export const purchaseOrdersService = {
         data: {
           supplierId: input.supplierId,
           employeeId,
+          createdByWebUserId: actor.userId,
           supplierDocNumber: input.supplierDocNumber ?? undefined,
           supplierDocType: input.supplierDocType ?? undefined,
           notes: input.notes ?? undefined,
