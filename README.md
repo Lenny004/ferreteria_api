@@ -140,6 +140,14 @@ postgresql://ferreteria_user:ferreteria_dev_password@localhost:55432/ferreteria
 
 ---
 
+### Seed y credenciales
+
+El seed de producción carga únicamente referencias idempotentes y nunca modifica ajustes, PINs ni contraseñas existentes. Los datos demo (familias, productos, empleados con PIN y usuarios ficticios) solo se cargan cuando `SEED_DEMO="true"` y `NODE_ENV` no es `production`; las credenciales demo nunca existen en producción.
+
+Para crear opcionalmente un administrador inicial, defina `SEED_ADMIN_USER`, `SEED_ADMIN_PASSWORD` (mínimo 12 caracteres, nunca `admin123`) y, opcionalmente, `SEED_ADMIN_EMAIL`. Si no se definen, el seed muestra `Admin inicial omitido: defina SEED_ADMIN_USER y SEED_ADMIN_PASSWORD` y continúa sin crear cuentas.
+
+En la tienda, el pago con tarjeta es actualmente una intención pendiente: no se simula un cobro ni se genera `sim_...`. La confirmación del pago la realiza manualmente personal ADMIN u OWNER desde el panel, hasta integrar una pasarela real.
+
 ## Esquemas PostgreSQL
 
 | Esquema | Contenido principal | Consumido por |
@@ -431,6 +439,15 @@ Alineado a `FERRETERIA_PLAN_FINALIZACION_APP.md`:
 - `POST /api/v1/shop/auth/logout`: limpia solo cookies de tienda y devuelve `{ loggedOut: true }`. Puede limpiar cookies caducadas sin sesión válida; si `fer_shop_access` contiene un JWT vigente exige `X-CSRF-Token` válido.
 - `GET /api/v1/shop/auth/csrf`: requiere sesión tienda por Bearer o `fer_shop_access`, rota `fer_shop_csrf` y devuelve `{ csrfToken }`.
 - `GET` autenticado por cookie no requiere CSRF. Las mutaciones autenticadas por cookie sí requieren `X-CSRF-Token` igual a `fer_shop_csrf`; Bearer no requiere CSRF. La firma HMAC usa un dominio distinto (`shop-csrf.`) al administrativo.
+
+### Pagos de pedidos de tienda
+
+- `POST /api/v1/shop/orders/:id/pay` — **confirmar pago** desde una sesión del panel; solo `ADMIN` u `OWNER`. Si la sesión del panel usa cookie, también requiere `X-CSRF-Token` válido.
+- Body opcional: `{ "method": "EFECTIVO_RETIRO" | "TRANSFERENCIA" | "TARJETA" | "CONTRA_ENTREGA", "providerRef": "...", "notes": "..." }`.
+- Respuestas relevantes: `403` si el rol no está autorizado o falla CSRF, `404` si el pedido no existe y `409` si ya está pagado o cancelado.
+- La integración con una pasarela real está pendiente; el checkout con tarjeta queda `PENDIENTE` y el personal confirma manualmente el pago.
+
+Tras desplegar esta versión, los tokens emitidos antes de incluir el claim `tv` se rechazan. Todos los usuarios deben iniciar sesión nuevamente una vez.
 
 ### Errores de Prisma
 

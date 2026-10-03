@@ -12,8 +12,12 @@ import {
 } from "../shop-payments/shop-payments.service.js";
 import { movementMagnitude, signedMovementDelta } from "../inventory/movement-direction.js";
 import { syncStockAlert } from "../inventory/inventory.service.js";
-import { shopOrderInclude } from "./shop-order.include.js";
+import { shopOrderClientInclude, shopOrderInclude } from "./shop-order.include.js";
+import { lockProducts, lockShopCustomer } from "../../shared/stock-locks.js";
+import { runWithTransactionRetry } from "../../shared/transaction-retry.js";
+import { calculateIva, roundMoney } from "../../shared/tax.js";
 
+/** Opciones validadas para convertir el carrito de un cliente en pedido. */
 export type CheckoutOptions = {
   customerNotes?: string | null;
   deliveryType?: "RETIRO_TIENDA" | "ENVIO";
@@ -21,71 +25,79 @@ export type CheckoutOptions = {
   paymentMethod?: ShopPaymentMethod;
 };
 
-/** Lee tasa de IVA desde ajuste `IvaPercentage`; fallback 13%. */
-async function getIvaRate(): Promise<number> {
-  const setting = await prisma.setting.findUnique({ where: { key: "IvaPercentage" } });
-  const n = Number(setting?.value ?? "13");
-  return Number.isFinite(n) ? n / 100 : 0.13;
-}
-
 export const shopOrdersService = {
   /**
    * Convierte carrito en pedido PENDIENTE en transacción atómica.
-   * Totales: `subtotal` = Σ (precio × qty); `taxAmount` = subtotal × IVA; `total` = subtotal + IVA.
+   * Totales: cada línea y el IVA usan Decimal y HALF_UP a dos decimales.
    * Por cada línea: movimiento SALIDA_VENTA, actualización de stock y alerta si queda en o bajo mínimo.
+   * Bloquea primero al cliente y luego los productos para serializar doble clics
+   * y calcular todos los saldos desde lecturas posteriores al bloqueo.
+   *
+   * @param shopCustomerId - UUID del cliente autenticado.
+   * @param options - Entrega, notas y método de pago validados.
+   * @returns Pedido creado y sus relaciones incluidas.
+   * @throws {BadRequestError} Si el carrito está vacío, hay producto inactivo o falta stock.
+   * @throws {NotFoundError} Si un producto desaparece antes de procesar el pedido.
    */
   async checkout(shopCustomerId: string, options: CheckoutOptions = {}) {
     const deliveryType = options.deliveryType ?? "RETIRO_TIENDA";
     const shippingAddress =
       deliveryType === "ENVIO" ? options.shippingAddress?.trim() || null : null;
     const paymentMethod = options.paymentMethod ?? null;
-    const cart = await prisma.shopCartItem.findMany({
-      where: { shopCustomerId },
-      include: {
-        product: true,
-      },
-    });
-    if (cart.length === 0) {
-      throw new BadRequestError("El carrito está vacío");
-    }
+    const order = await runWithTransactionRetry(async (tx) => {
+      // El bloqueo del cliente hace que dos clics sobre el mismo carrito se serialicen.
+      await lockShopCustomer(tx, shopCustomerId);
+      const cart = await tx.shopCartItem.findMany({ where: { shopCustomerId } });
+      if (cart.length === 0) throw new BadRequestError("El carrito está vacío");
 
-    for (const item of cart) {
-      if (!item.product.isActive) {
-        throw new BadRequestError(`Producto inactivo: ${item.product.code}`);
+      await lockProducts(tx, cart.map((item) => item.productId));
+      const products = new Map<string, NonNullable<Awaited<ReturnType<typeof tx.product.findUnique>>>>();
+      for (const item of cart) {
+        const product = await tx.product.findUnique({ where: { id: item.productId } });
+        if (!product) throw new NotFoundError("Producto no encontrado durante checkout");
+        products.set(item.productId, product);
       }
-      if (Number(item.product.currentStock) < Number(item.quantity)) {
-        throw new BadRequestError(
-          `Stock insuficiente para ${item.product.code} (disponible: ${item.product.currentStock})`,
+
+      const quantitiesByProduct = new Map<string, Prisma.Decimal>();
+      for (const item of cart) {
+        const quantity = new Prisma.Decimal(item.quantity);
+        quantitiesByProduct.set(
+          item.productId,
+          (quantitiesByProduct.get(item.productId) ?? new Prisma.Decimal(0)).add(quantity),
         );
       }
-    }
 
-    const ivaRate = await getIvaRate();
-    let subtotal = 0;
-    const linesData = cart.map((item) => {
-      const unitPrice = Number(item.product.salePrice);
-      const quantity = Number(item.quantity);
-      const lineSubtotal = unitPrice * quantity;
-      subtotal += lineSubtotal;
-      return {
-        productId: item.productId,
-        quantity: item.quantity,
-        unitPrice: item.product.salePrice,
-        subtotal: new Prisma.Decimal(lineSubtotal.toFixed(2)),
-        unitCost: item.product.costPrice,
-      };
-    });
-    const taxAmount = Number((subtotal * ivaRate).toFixed(2));
-    const total = Number((subtotal + taxAmount).toFixed(2));
+      for (const [productId, quantity] of quantitiesByProduct) {
+        const product = products.get(productId)!;
+        if (!product.isActive) throw new BadRequestError(`Producto inactivo: ${product.code}`);
+        if (new Prisma.Decimal(product.currentStock).lessThan(quantity)) {
+          throw new BadRequestError(`Stock insuficiente para ${product.code} (disponible: ${product.currentStock})`);
+        }
+      }
 
-    const initialPayment = paymentMethod ? resolveInitialPayment(paymentMethod, total) : null;
+      let subtotal = new Prisma.Decimal(0);
+      const linesData = cart.map((item) => {
+        const product = products.get(item.productId)!;
+        const quantity = new Prisma.Decimal(item.quantity);
+        const lineSubtotal = roundMoney(new Prisma.Decimal(product.salePrice).mul(quantity));
+        subtotal = subtotal.add(lineSubtotal);
+        return {
+          productId: item.productId,
+          quantity: item.quantity,
+          unitPrice: product.salePrice,
+          subtotal: lineSubtotal,
+          unitCost: product.costPrice,
+        };
+      });
+      const taxAmount = calculateIva(subtotal);
+      const total = roundMoney(subtotal.add(taxAmount));
+      const initialPayment = paymentMethod ? resolveInitialPayment(paymentMethod, total) : null;
 
-    const order = await prisma.$transaction(async (tx) => {
       const created = await tx.shopOrder.create({
         data: {
           shopCustomerId,
           status: "PENDIENTE",
-          subtotal,
+          subtotal: roundMoney(subtotal),
           taxAmount,
           total,
           deliveryType,
@@ -114,13 +126,12 @@ export const shopOrdersService = {
               }
             : {}),
         },
-        include: shopOrderInclude,
+        include: shopOrderClientInclude,
       });
 
       for (const item of cart) {
         const qty = new Prisma.Decimal(item.quantity);
-        const product = await tx.product.findUnique({ where: { id: item.productId } });
-        if (!product) throw new NotFoundError("Producto no encontrado durante checkout");
+        const product = products.get(item.productId)!;
         const stockBefore = new Prisma.Decimal(product.currentStock);
         const delta = signedMovementDelta("SALIDA_VENTA", qty);
         const stockAfter = stockBefore.add(delta);
@@ -137,6 +148,7 @@ export const shopOrdersService = {
             updatedAt: new Date(),
           },
         });
+        products.set(product.id, { ...product, currentStock: stockAfter });
         await tx.inventoryMovement.create({
           data: {
             productId: product.id,
@@ -154,7 +166,7 @@ export const shopOrdersService = {
 
       await tx.shopCartItem.deleteMany({ where: { shopCustomerId } });
       return created;
-    });
+    }, { maxWait: 10_000, timeout: 60_000 });
 
     return order;
   },
@@ -163,7 +175,7 @@ export const shopOrdersService = {
   async listMine(shopCustomerId: string) {
     return prisma.shopOrder.findMany({
       where: { shopCustomerId },
-      include: shopOrderInclude,
+      include: shopOrderClientInclude,
       orderBy: { createdAt: "desc" },
       take: 50,
     });
@@ -173,7 +185,7 @@ export const shopOrdersService = {
   async getMine(shopCustomerId: string, orderId: string) {
     const order = await prisma.shopOrder.findFirst({
       where: { id: orderId, shopCustomerId },
-      include: shopOrderInclude,
+      include: shopOrderClientInclude,
     });
     if (!order) throw new NotFoundError("Pedido no encontrado");
     return order;

@@ -5,6 +5,12 @@ import { signAccessToken } from "../src/shared/jwt.js";
 const userId = "550e8400-e29b-41d4-a716-446655440000";
 const countId = "750e8400-e29b-41d4-a716-446655440000";
 
+const prismaMock = vi.hoisted(() => ({
+  webUser: { findUnique: vi.fn().mockResolvedValue({ isActive: true, role: "ADMIN", tokenVersion: 0 }) },
+}));
+
+vi.mock("../src/lib/prisma.js", () => ({ prisma: prismaMock }));
+
 const serviceMock = vi.hoisted(() => ({
   list: vi.fn(),
   create: vi.fn(),
@@ -34,7 +40,7 @@ describe("rutas de conteos físicos", () => {
   });
 
   it("permite a ADMIN crear, aplicar y exportar", async () => {
-    const token = signAccessToken({ userId, role: "ADMIN" });
+    const token = signAccessToken({ userId, role: "ADMIN", tv: 0 });
     const createResponse = await request(app)
       .post("/api/v1/inventory/counts")
       .set("Authorization", `Bearer ${token}`)
@@ -56,7 +62,7 @@ describe("rutas de conteos físicos", () => {
   });
 
   it("devuelve 400 para UUID, confirmación y tamaños de lote inválidos", async () => {
-    const token = signAccessToken({ userId, role: "ADMIN" });
+    const token = signAccessToken({ userId, role: "ADMIN", tv: 0 });
     const invalidId = await request(app)
       .get("/api/v1/inventory/counts/no-es-uuid")
       .set("Authorization", `Bearer ${token}`);
@@ -80,7 +86,8 @@ describe("rutas de conteos físicos", () => {
   });
 
   it("bloquea a ACCOUNTANT en cada mutación", async () => {
-    const token = signAccessToken({ userId, role: "ACCOUNTANT" });
+    prismaMock.webUser.findUnique.mockResolvedValue({ isActive: true, role: "ACCOUNTANT", tokenVersion: 0 });
+    const token = signAccessToken({ userId, role: "ACCOUNTANT", tv: 0 });
     const headers = { Authorization: `Bearer ${token}` };
     const responses = await Promise.all([
       request(app).post("/api/v1/inventory/counts").set(headers).send({ name: "x", familyId: userId }),
@@ -90,11 +97,12 @@ describe("rutas de conteos físicos", () => {
     ]);
 
     expect(responses.map((response) => response.status)).toEqual([403, 403, 403, 403]);
+    prismaMock.webUser.findUnique.mockResolvedValue({ isActive: true, role: "ADMIN", tokenVersion: 0 });
   });
 
   it("devuelve 401 sin token y 403 para cookie admin sin CSRF", async () => {
     const noToken = await request(app).get("/api/v1/inventory/counts");
-    const token = signAccessToken({ userId, role: "ADMIN" });
+    const token = signAccessToken({ userId, role: "ADMIN", tv: 0 });
     const missingCsrf = await request(app)
       .post("/api/v1/inventory/counts")
       .set("Cookie", `fer_access=${token}`)

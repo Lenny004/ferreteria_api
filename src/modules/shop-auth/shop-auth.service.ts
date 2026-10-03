@@ -51,11 +51,12 @@ export const shopAuthService = {
         fullName: data.fullName.trim(),
         phone: data.phone?.trim() || null,
       },
-      select: shopCustomerSelect,
+      select: { ...shopCustomerSelect, tokenVersion: true },
     });
 
-    const accessToken = signAccessToken({ userId: customer.id, role: "SHOP" });
-    return { accessToken, customer };
+    const accessToken = signAccessToken({ userId: customer.id, role: "SHOP", tv: customer.tokenVersion ?? 0 });
+    const { tokenVersion: _tokenVersion, ...publicCustomer } = customer;
+    return { accessToken, customer: publicCustomer };
   },
 
   /** Valida credenciales y emite JWT; actualiza `lastLoginAt`. */
@@ -77,7 +78,7 @@ export const shopAuthService = {
       data: { lastLoginAt, updatedAt: lastLoginAt },
     });
 
-    const accessToken = signAccessToken({ userId: customer.id, role: "SHOP" });
+    const accessToken = signAccessToken({ userId: customer.id, role: "SHOP", tv: customer.tokenVersion ?? 0 });
     return {
       accessToken,
       customer: {
@@ -142,11 +143,12 @@ export const shopAuthService = {
       throw new BadRequestError("La nueva contraseña debe tener al menos 8 caracteres");
     }
     const passwordHash = await bcrypt.hash(newPassword, 10);
-    await prisma.shopCustomer.update({
+    const updatedCustomer = await prisma.shopCustomer.update({
       where: { id: customerId },
-      data: { passwordHash, updatedAt: new Date() },
+      data: { passwordHash, tokenVersion: { increment: 1 }, updatedAt: new Date() },
+      select: { tokenVersion: true },
     });
-    return { changed: true };
+    return { changed: true, tokenVersion: updatedCustomer.tokenVersion };
   },
 
   /**
@@ -222,7 +224,7 @@ export const shopAuthService = {
     await prisma.$transaction([
       prisma.shopCustomer.update({
         where: { id: record.userId },
-        data: { passwordHash, updatedAt: new Date() },
+        data: { passwordHash, tokenVersion: { increment: 1 }, updatedAt: new Date() },
       }),
       prisma.passwordResetToken.update({
         where: { id: record.id },

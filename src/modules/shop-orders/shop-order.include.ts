@@ -17,3 +17,24 @@ export const shopOrderInclude = {
     orderBy: { createdAt: "desc" as const },
   },
 } as const;
+
+/** Include de pedidos para clientes: excluye identificadores internos del personal. */
+export const shopOrderClientInclude = {
+  lines: shopOrderInclude.lines,
+  shopCustomer: shopOrderInclude.shopCustomer,
+  payments: {
+    orderBy: { createdAt: "desc" as const },
+    select: {
+      id: true,
+      shopOrderId: true,
+      method: true,
+      amount: true,
+      status: true,
+      providerRef: true,
+      notes: true,
+      confirmedAt: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  },
+} as const;

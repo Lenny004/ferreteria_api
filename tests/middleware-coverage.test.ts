@@ -11,6 +11,13 @@ import { AppError } from "../src/shared/errors.js";
 import { createCsrfToken } from "../src/shared/cookies.js";
 import { ZodError, z } from "zod";
 
+const prismaMock = vi.hoisted(() => ({
+  webUser: { findUnique: vi.fn().mockResolvedValue({ isActive: true, role: "ADMIN", tokenVersion: 0 }) },
+  shopCustomer: { findUnique: vi.fn().mockResolvedValue({ isActive: true, tokenVersion: 0 }) },
+}));
+
+vi.mock("../src/lib/prisma.js", () => ({ prisma: prismaMock }));
+
 const userId = "550e8400-e29b-41d4-a716-446655440000";
 
 function responseMock() {
@@ -27,41 +34,41 @@ function responseMock() {
 }
 
 describe("middleware de seguridad", () => {
-  it("autentica Bearer, rechaza ausencia, token inválido y role SHOP", () => {
+  it("autentica Bearer, rechaza ausencia, token inválido y role SHOP", async () => {
     const next = vi.fn();
-    const valid = signAccessToken({ userId, role: "ADMIN" });
+    const valid = signAccessToken({ userId, role: "ADMIN", tv: 0 });
     const res = responseMock();
-    authenticate({ headers: { authorization: `Bearer ${valid}` }, method: "GET", header: () => undefined } as never, res, next);
+    await authenticate({ headers: { authorization: `Bearer ${valid}` }, method: "GET", header: () => undefined } as never, res, next);
     expect(next).toHaveBeenCalledOnce();
-    authenticate({ headers: {}, cookies: {}, method: "GET", header: () => undefined } as never, res, next);
+    await authenticate({ headers: {}, cookies: {}, method: "GET", header: () => undefined } as never, res, next);
     expect(res.statusCode).toBe(401);
-    authenticate({ headers: { authorization: "Bearer invalid" }, method: "GET", header: () => undefined } as never, res, next);
+    await authenticate({ headers: { authorization: "Bearer invalid" }, method: "GET", header: () => undefined } as never, res, next);
     expect(res.statusCode).toBe(401);
-    const shop = signAccessToken({ userId, role: "SHOP" });
-    authenticate({ headers: { authorization: `Bearer ${shop}` }, method: "GET", header: () => undefined } as never, res, next);
+    const shop = signAccessToken({ userId, role: "SHOP", tv: 0 });
+    await authenticate({ headers: { authorization: `Bearer ${shop}` }, method: "GET", header: () => undefined } as never, res, next);
     expect(res.statusCode).toBe(403);
   });
 
-  it("autentica por cookie y exige CSRF en mutaciones", () => {
-    const token = signAccessToken({ userId, role: "ADMIN" });
+  it("autentica por cookie y exige CSRF en mutaciones", async () => {
+    const token = signAccessToken({ userId, role: "ADMIN", tv: 0 });
     const next = vi.fn();
     const res = responseMock();
-    authenticate({ headers: {}, cookies: { fer_access: token }, method: "POST", header: () => undefined } as never, res, next);
+    await authenticate({ headers: {}, cookies: { fer_access: token }, method: "POST", header: () => undefined } as never, res, next);
     expect(res.statusCode).toBe(403);
-    authenticate({ headers: {}, cookies: { fer_access: token }, method: "GET", header: () => undefined } as never, res, next);
+    await authenticate({ headers: {}, cookies: { fer_access: token }, method: "GET", header: () => undefined } as never, res, next);
     expect(next).toHaveBeenCalled();
   });
 
-  it("mantiene aisladas las cookies de sesión entre admin y tienda", () => {
-    const shopToken = signAccessToken({ userId, role: "SHOP" });
-    const adminToken = signAccessToken({ userId, role: "ADMIN" });
+  it("mantiene aisladas las cookies de sesión entre admin y tienda", async () => {
+    const shopToken = signAccessToken({ userId, role: "SHOP", tv: 0 });
+    const adminToken = signAccessToken({ userId, role: "ADMIN", tv: 0 });
     const next = vi.fn();
     const res = responseMock();
-    authenticate({ headers: {}, cookies: { fer_shop_access: adminToken }, method: "GET", header: () => undefined } as never, res, next);
+    await authenticate({ headers: {}, cookies: { fer_shop_access: adminToken }, method: "GET", header: () => undefined } as never, res, next);
     expect(res.statusCode).toBe(401);
 
     const csrf = createCsrfToken(userId, "shop");
-    authenticateShop({
+    await authenticateShop({
       headers: {},
       cookies: { fer_shop_access: shopToken, fer_shop_csrf: csrf },
       method: "POST",
@@ -69,7 +76,7 @@ describe("middleware de seguridad", () => {
     } as never, res, next);
     expect(res.statusCode).toBe(403);
 
-    authenticateShop({
+    await authenticateShop({
       headers: {},
       cookies: { fer_shop_access: shopToken, fer_shop_csrf: csrf },
       method: "POST",
@@ -77,7 +84,7 @@ describe("middleware de seguridad", () => {
     } as never, res, next);
     expect(next).toHaveBeenCalled();
 
-    authenticateShop({
+    await authenticateShop({
       headers: {},
       cookies: { fer_shop_access: shopToken, fer_shop_csrf: createCsrfToken(userId, "admin") },
       method: "POST",
@@ -86,16 +93,16 @@ describe("middleware de seguridad", () => {
     expect(res.statusCode).toBe(403);
   });
 
-  it("aplica el middleware SHOP y sus respuestas 401/403", () => {
+  it("aplica el middleware SHOP y sus respuestas 401/403", async () => {
     const next = vi.fn();
     const res = responseMock();
-    authenticateShop({ headers: {}, cookies: {}, method: "GET", header: () => undefined } as never, res, next);
+    await authenticateShop({ headers: {}, cookies: {}, method: "GET", header: () => undefined } as never, res, next);
     expect(res.statusCode).toBe(401);
-    const admin = signAccessToken({ userId, role: "ADMIN" });
-    authenticateShop({ headers: { authorization: `Bearer ${admin}` }, method: "GET", header: () => undefined } as never, res, next);
+    const admin = signAccessToken({ userId, role: "ADMIN", tv: 0 });
+    await authenticateShop({ headers: { authorization: `Bearer ${admin}` }, method: "GET", header: () => undefined } as never, res, next);
     expect(res.statusCode).toBe(403);
-    const shop = signAccessToken({ userId, role: "SHOP" });
-    authenticateShop({ headers: { authorization: `Bearer ${shop}` }, method: "GET", header: () => undefined } as never, res, next);
+    const shop = signAccessToken({ userId, role: "SHOP", tv: 0 });
+    await authenticateShop({ headers: { authorization: `Bearer ${shop}` }, method: "GET", header: () => undefined } as never, res, next);
     expect(next).toHaveBeenCalled();
   });
 

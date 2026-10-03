@@ -5,7 +5,9 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
-import { BadRequestError, NotFoundError } from "../../shared/errors.js";
+import { BadRequestError, ConflictError, NotFoundError } from "../../shared/errors.js";
+import { lockProducts, lockPurchaseOrder } from "../../shared/stock-locks.js";
+import { runWithTransactionRetry } from "../../shared/transaction-retry.js";
 import { syncStockAlert } from "../inventory/inventory.service.js";
 
 export type PurchaseOrderStatus = "BORRADOR" | "CONFIRMADA" | "RECIBIDA" | "CANCELADA";
@@ -332,6 +334,16 @@ export const purchaseOrdersService = {
   /**
    * Recibe OC CONFIRMADA (o BORRADOR): genera ENTRADA_COMPRA por línea,
    * actualiza stock y costPrice con promedio ponderado.
+   * La OC y todos sus productos se bloquean en orden determinista antes de
+   * validar estado o calcular saldos.
+   *
+   * @param id - UUID de la orden de compra.
+   * @param input - Datos opcionales del documento de recepción.
+   * @param webUserId - Usuario web que solicita la recepción.
+   * @returns Orden recibida con sus detalles.
+   * @throws {ConflictError} Si la orden ya fue recibida o está cancelada.
+   * @throws {BadRequestError} Si la orden no tiene líneas o costos válidos.
+   * @throws {NotFoundError} Si la orden o un producto no existe.
    */
   async receive(
     id: string,
@@ -342,17 +354,18 @@ export const purchaseOrdersService = {
     } = {},
     webUserId?: string,
   ) {
-    return prisma.$transaction(async (tx) => {
+    return runWithTransactionRetry(async (tx) => {
+      await lockPurchaseOrder(tx, id);
       const order = await tx.purchaseOrder.findUnique({
         where: { id },
         include: { details: true },
       });
       if (!order) throw new NotFoundError("Orden de compra no encontrada");
       if (order.status === "RECIBIDA") {
-        throw new BadRequestError("La orden ya fue recibida");
+        throw new ConflictError("La orden ya fue recibida");
       }
       if (order.status === "CANCELADA") {
-        throw new BadRequestError("No se puede recibir una orden cancelada");
+        throw new ConflictError("No se puede recibir una orden cancelada");
       }
       if (!order.details.length) {
         throw new BadRequestError("La orden no tiene líneas");
@@ -363,6 +376,8 @@ export const purchaseOrdersService = {
           throw new BadRequestError("El costo unitario debe ser mayor que cero al recibir");
         }
       }
+
+      await lockProducts(tx, order.details.map((detail) => detail.productId));
 
       const receivedById = await resolveEmployeeId(input.receivedById ?? order.employeeId, webUserId);
 

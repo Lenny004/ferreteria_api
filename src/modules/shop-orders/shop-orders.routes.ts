@@ -12,9 +12,14 @@ import * as paymentsController from "../shop-payments/shop-payments.controller.j
 import * as controller from "./shop-orders.controller.js";
 
 const shopRouter = Router();
+shopRouter.post(
+  "/:id/pay",
+  authenticate,
+  requireRole("ADMIN", "OWNER"),
+  paymentsController.payOrder,
+);
 shopRouter.use(authenticateShop);
 shopRouter.post("/checkout", controller.checkout);
-shopRouter.post("/:id/pay", paymentsController.payOrder);
 shopRouter.get("/", controller.listMine);
 shopRouter.get("/:id", controller.getMine);
 

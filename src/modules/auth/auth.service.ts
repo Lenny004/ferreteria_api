@@ -49,7 +49,7 @@ export const authService = {
       data: { lastLoginAt, updatedAt: lastLoginAt },
     });
 
-    const accessToken = signAccessToken({ userId: user.id, role: user.role });
+    const accessToken = signAccessToken({ userId: user.id, role: user.role, tv: user.tokenVersion ?? 0 });
 
     return {
       accessToken,
@@ -95,12 +95,13 @@ export const authService = {
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 10);
-    await prisma.webUser.update({
+    const updatedUser = await prisma.webUser.update({
       where: { id: userId },
-      data: { passwordHash, updatedAt: new Date() },
+      data: { passwordHash, tokenVersion: { increment: 1 }, updatedAt: new Date() },
+      select: { tokenVersion: true, role: true },
     });
 
-    return { changed: true };
+    return { changed: true, role: updatedUser.role, tokenVersion: updatedUser.tokenVersion };
   },
 
   /**
@@ -176,7 +177,7 @@ export const authService = {
     await prisma.$transaction([
       prisma.webUser.update({
         where: { id: record.userId },
-        data: { passwordHash, updatedAt: new Date() },
+        data: { passwordHash, tokenVersion: { increment: 1 }, updatedAt: new Date() },
       }),
       prisma.passwordResetToken.update({
         where: { id: record.id },

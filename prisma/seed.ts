@@ -10,7 +10,8 @@
  * Usuarios WebUser demo: admin / admin123 y contador / contador123 (solo desarrollo).
  */
 
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 import { pathToFileURL } from 'node:url';
 
 const prisma = new PrismaClient();
@@ -47,7 +48,190 @@ export function saleUnitValuesSql(): string {
  * @returns `false` únicamente cuando el entorno es producción.
  */
 export function shouldSeedDemoAccountant(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.NODE_ENV !== 'production';
+  return shouldSeedDemoData(env);
+}
+
+/**
+ * Decide si se permiten datos ficticios en el entorno actual.
+ *
+ * @param env - Variables de entorno a evaluar.
+ * @returns `true` solo con `SEED_DEMO=true` fuera de producción.
+ */
+export function shouldSeedDemoData(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.SEED_DEMO === 'true' && env.NODE_ENV !== 'production';
+}
+
+/**
+ * Rechaza explícitamente una configuración que intentaría sembrar demos en producción.
+ *
+ * @param env - Variables de entorno a validar.
+ * @throws {Error} Si `SEED_DEMO=true` y `NODE_ENV=production`.
+ */
+export function assertSeedMode(env: NodeJS.ProcessEnv = process.env): void {
+  if (env.SEED_DEMO === 'true' && env.NODE_ENV === 'production') {
+    throw new Error('SEED_DEMO=true está prohibido en producción; omita la variable.');
+  }
+}
+
+/** Configuración validada para crear un administrador inicial sin sobrescribirlo. */
+export type AdminSeedConfig = {
+  username: string;
+  password: string;
+  email: string;
+};
+
+/** Mensaje estable para comunicar que no se creó un admin inicial configurado. */
+export const ADMIN_SEED_OMITTED_MESSAGE = 'Admin inicial omitido: defina SEED_ADMIN_USER y SEED_ADMIN_PASSWORD';
+
+/**
+ * Describe la decisión pura del seed administrativo sin acceder a la base de datos.
+ *
+ * @param env - Variables de entorno a evaluar.
+ * @returns Estado de configuración y mensaje operativo para consola o pruebas.
+ */
+export function describeAdminSeedPlan(env: NodeJS.ProcessEnv = process.env): {
+  configured: boolean;
+  message: string;
+} {
+  const configured = getAdminSeedConfig(env) !== null;
+  return {
+    configured,
+    message: configured ? 'Admin inicial configurado' : ADMIN_SEED_OMITTED_MESSAGE,
+  };
+}
+
+/**
+ * Obtiene y valida las credenciales administrativas opcionales del entorno.
+ *
+ * @param env - Variables de entorno a evaluar.
+ * @returns Configuración completa o `null` cuando no se solicitó un admin inicial.
+ * @throws {Error} Si solo se define una variable o la contraseña es débil.
+ */
+export function getAdminSeedConfig(env: NodeJS.ProcessEnv = process.env): AdminSeedConfig | null {
+  const username = env.SEED_ADMIN_USER?.trim();
+  const password = env.SEED_ADMIN_PASSWORD;
+  if (!username && !password) return null;
+  if (!username || !password) {
+    throw new Error('SEED_ADMIN_USER y SEED_ADMIN_PASSWORD deben definirse juntos.');
+  }
+  if (password.length < 12 || password === 'admin123') {
+    throw new Error('SEED_ADMIN_PASSWORD debe tener al menos 12 caracteres y no puede ser admin123.');
+  }
+  return {
+    username,
+    password,
+    email: env.SEED_ADMIN_EMAIL?.trim() || `${username}@ferreteria.local`,
+  };
+}
+
+/**
+ * Siembra únicamente referencias necesarias para arrancar en producción.
+ * Las filas existentes se preservan para no pisar ajustes editados por usuarios.
+ */
+async function seedReferenceData(): Promise<void> {
+  const saleUnitValues = Prisma.join(
+    SALE_UNITS.map((unit) => Prisma.sql`(${unit.code}, ${unit.name}, ${unit.abbreviation})`),
+  );
+  await prisma.$executeRaw(Prisma.sql`
+    INSERT INTO public."SaleUnits" ("code", "name", "Abbreviation") VALUES ${saleUnitValues}
+    ON CONFLICT ("code") DO NOTHING;
+  `);
+  await prisma.$executeRaw(Prisma.sql`
+    DO $$
+    BEGIN
+    INSERT INTO public."MeasurementTypes" (code, name, "UnitLabel", decimals) VALUES
+      ('METRO', 'Metros lineales', 'metros', 2), ('PIEZA', 'Piezas / unidades', 'piezas', 0),
+      ('KIT', 'Kits pre-armados', 'kits', 0), ('PESO', 'Kilogramos a granel', 'kg', 3)
+    ON CONFLICT (code) DO NOTHING;
+    INSERT INTO system."Settings" ("Key", "Value", "Description", "IsPublic") VALUES
+      ('IvaPercentage', '13', 'IVA vigente en El Salvador (%)', FALSE),
+      ('Currency', 'USD', 'Moneda operativa', TRUE),
+      ('SessionTimeoutMinutes', '30', 'Minutos de inactividad antes de cerrar sesion', FALSE),
+      ('BusinessName', 'Ferreteria', 'Nombre comercial público', TRUE),
+      ('ContactEmail', 'contacto@ferreteria.local', 'Correo de contacto público', TRUE)
+    ON CONFLICT ("Key") DO NOTHING;
+    INSERT INTO hr."Departments" (name) VALUES
+      ('Produccion'), ('Ventas'), ('Bodega'), ('Administracion')
+    ON CONFLICT (name) DO NOTHING;
+    INSERT INTO hr."Positions" ("DepartmentId", name)
+    SELECT d.id, role.name FROM hr."Departments" d
+    CROSS JOIN (VALUES
+      ('Produccion', 'Tecnico de Confeccion'), ('Ventas', 'Vendedor'),
+      ('Bodega', 'Bodeguero'), ('Administracion', 'Administrador')
+    ) AS role(department_name, name)
+    WHERE d.name = role.department_name
+      AND NOT EXISTS (
+      SELECT 1 FROM hr."Positions" p WHERE p."DepartmentId" = d.id AND p.name = role.name
+    );
+    INSERT INTO hr."LeaveTypes" (name, category, "MaxDaysPerYear", "RequiresDocument", "IsPaid", "AffectsVacationAccrual", "LegalBasis") VALUES
+      ('Vacaciones', 'VACACIONES', 15, FALSE, TRUE, FALSE, 'Código de Trabajo Art. 177'),
+      ('Permiso con goce de sueldo', 'PERMISO_CON_GOCE', NULL, FALSE, TRUE, FALSE, NULL),
+      ('Permiso sin goce de sueldo', 'PERMISO_SIN_GOCE', NULL, FALSE, FALSE, FALSE, NULL),
+      ('Baja médica', 'BAJA_MEDICA', NULL, TRUE, TRUE, FALSE, 'Ley del ISSS')
+    ON CONFLICT (name) DO NOTHING;
+    INSERT INTO hr."IsrBrackets" (year, "PeriodType", "BracketFrom", "BracketTo", "FixedAmount", "Rate", "ExcessOver", notes) VALUES
+      (2026, 'MENSUAL', 0.01, 550.00, 0, 0, 0, 'Tramo I — exento'),
+      (2026, 'MENSUAL', 550.01, 895.24, 17.67, 0.10, 550.00, 'Tramo II — 10%'),
+      (2026, 'MENSUAL', 895.25, 2038.10, 60.00, 0.20, 895.24, 'Tramo III — 20%'),
+      (2026, 'MENSUAL', 2038.11, NULL, 288.57, 0.30, 2038.10, 'Tramo IV — 30%'),
+      (2026, 'QUINCENAL', 0.01, 275.00, 0, 0, 0, 'Tramo I — exento'),
+      (2026, 'QUINCENAL', 275.01, 447.62, 8.83, 0.10, 275.00, 'Tramo II — 10%'),
+      (2026, 'QUINCENAL', 447.63, 1019.05, 30.00, 0.20, 447.62, 'Tramo III — 20%'),
+      (2026, 'QUINCENAL', 1019.06, NULL, 144.28, 0.30, 1019.05, 'Tramo IV — 30%')
+    ON CONFLICT (year, "PeriodType", "BracketFrom") DO NOTHING;
+    END $$;
+  `);
+}
+
+/** Crea el administrador inicial definido por entorno sin modificar uno existente. */
+async function seedConfiguredAdmin(config: AdminSeedConfig | null): Promise<void> {
+  if (!config) {
+    console.warn(`[seed] ${ADMIN_SEED_OMITTED_MESSAGE}`);
+    return;
+  }
+  const existingUsername = await prisma.webUser.findUnique({
+    where: { username: config.username },
+    select: { id: true },
+  });
+  if (existingUsername) {
+    console.info(`[seed] Admin inicial ya existía: usuario ${config.username}.`);
+    return;
+  }
+
+  const existingEmail = await prisma.webUser.findUnique({
+    where: { email: config.email },
+    select: { id: true },
+  });
+  if (existingEmail) {
+    console.warn(`[seed] Admin inicial omitido: el email ${config.email} ya existe.`);
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(config.password, 12);
+  try {
+    const inserted = await prisma.$executeRaw(Prisma.sql`
+      INSERT INTO system."WebUsers" ("Username", "Email", "PasswordHash", "Role", "IsActive")
+      VALUES (${config.username}, ${config.email}, ${passwordHash}, 'ADMIN', TRUE)
+      ON CONFLICT ("Username") DO NOTHING;
+    `);
+    if (inserted === 1) {
+      console.info(`[seed] Admin inicial creado: usuario ${config.username}.`);
+    } else {
+      console.info(`[seed] Admin inicial ya existía: usuario ${config.username}.`);
+    }
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+    console.warn(`[seed] Admin inicial omitido: el usuario o email ya existe.`);
+  }
+}
+
+/** Identifica conflictos de unicidad del driver sin ocultar otros errores del seed. */
+function isUniqueViolation(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as { code?: unknown; meta?: { code?: unknown }; message?: unknown };
+  return candidate.code === 'P2002'
+    || (candidate.code === 'P2010' && candidate.meta?.code === '23505')
+    || (typeof candidate.message === 'string' && /duplicate key|23505/i.test(candidate.message));
 }
 
 /**
@@ -56,9 +240,9 @@ export function shouldSeedDemoAccountant(env: NodeJS.ProcessEnv = process.env): 
  */
 async function seedDemoData(): Promise<void> {
   // pgcrypto habilita bcrypt (bf) para hashear PIN de Employee.
-  await prisma.$executeRawUnsafe('CREATE EXTENSION IF NOT EXISTS "pgcrypto"');
+  await prisma.$executeRaw(Prisma.sql`CREATE EXTENSION IF NOT EXISTS "pgcrypto"`);
 
-  await prisma.$executeRawUnsafe(`
+  await prisma.$executeRaw(Prisma.sql`
     DO $$
     BEGIN
     -- MeasurementType: unidad de medida del Product (metros, piezas, kits, kg).
@@ -67,19 +251,7 @@ async function seedDemoData(): Promise<void> {
       ('PIEZA', 'Piezas / unidades', 'piezas', 0),
       ('KIT', 'Kits pre-armados', 'kits', 0),
       ('PESO', 'Kilogramos a granel', 'kg', 3)
-    ON CONFLICT (code) DO UPDATE SET
-      name = EXCLUDED.name,
-      "UnitLabel" = EXCLUDED."UnitLabel",
-      decimals = EXCLUDED.decimals;
-
-    -- SaleUnit: presentaciones comerciales compartidas con el POS.
-    INSERT INTO public."SaleUnits" ("code", "name", "Abbreviation") VALUES
-      ${saleUnitValuesSql()}
-    ON CONFLICT ("code") DO UPDATE SET
-      "name" = EXCLUDED."name",
-      "Abbreviation" = EXCLUDED."Abbreviation",
-      "IsActive" = TRUE,
-      "UpdatedAt" = NOW();
+    ON CONFLICT (code) DO NOTHING;
 
     -- Family: departamentos ferreteros para catálogo web y POS.
     INSERT INTO public."Families" (code, name, description, slug, "IconKey", "ImageUrl", "SortOrder") VALUES
@@ -286,10 +458,7 @@ async function seedDemoData(): Promise<void> {
     JOIN hr."Departments" d ON d.name = 'Administracion'
     WHERE p.name = 'Administrador'
       AND p."DepartmentId" = d.id
-    ON CONFLICT ("Dui") DO UPDATE SET
-      "PinHash" = EXCLUDED."PinHash",
-      "CanCashier" = TRUE,
-      "IsActive" = TRUE;
+    ON CONFLICT ("Dui") DO NOTHING;
 
     -- Employee demo: Técnico de confección (CanSell). PIN demo "5678".
     INSERT INTO hr."Employees" (
@@ -303,10 +472,7 @@ async function seedDemoData(): Promise<void> {
     JOIN hr."Departments" d ON d.name = 'Produccion'
     WHERE p.name = 'Tecnico de Confeccion'
       AND p."DepartmentId" = d.id
-    ON CONFLICT ("Dui") DO UPDATE SET
-      "PinHash" = EXCLUDED."PinHash",
-      "CanSell" = TRUE,
-      "IsActive" = TRUE;
+    ON CONFLICT ("Dui") DO NOTHING;
 
     -- Employee demo: Cajero (CanCashier). PIN demo "0000".
     INSERT INTO hr."Employees" (
@@ -320,10 +486,7 @@ async function seedDemoData(): Promise<void> {
     JOIN hr."Departments" d ON d.name = 'Ventas'
     WHERE p.name = 'Vendedor'
       AND p."DepartmentId" = d.id
-    ON CONFLICT ("Dui") DO UPDATE SET
-      "PinHash" = EXCLUDED."PinHash",
-      "CanCashier" = TRUE,
-      "IsActive" = TRUE;
+    ON CONFLICT ("Dui") DO NOTHING;
 
     -- LeaveType: catálogo básico de ausencias para vacaciones/permisos/bajas médicas (Fase 10b).
     INSERT INTO hr."LeaveTypes" (name, category, "MaxDaysPerYear", "RequiresDocument", "IsPaid", "AffectsVacationAccrual", "LegalBasis") VALUES
@@ -331,14 +494,7 @@ async function seedDemoData(): Promise<void> {
       ('Permiso con goce de sueldo', 'PERMISO_CON_GOCE', NULL, FALSE, TRUE, FALSE, NULL),
       ('Permiso sin goce de sueldo', 'PERMISO_SIN_GOCE', NULL, FALSE, FALSE, FALSE, NULL),
       ('Baja médica', 'BAJA_MEDICA', NULL, TRUE, TRUE, FALSE, 'Ley del ISSS')
-    ON CONFLICT (name) DO UPDATE SET
-      category = EXCLUDED.category,
-      "MaxDaysPerYear" = EXCLUDED."MaxDaysPerYear",
-      "RequiresDocument" = EXCLUDED."RequiresDocument",
-      "IsPaid" = EXCLUDED."IsPaid",
-      "AffectsVacationAccrual" = EXCLUDED."AffectsVacationAccrual",
-      "LegalBasis" = EXCLUDED."LegalBasis",
-      "IsActive" = TRUE;
+    ON CONFLICT (name) DO NOTHING;
 
     -- Setting: parámetros operativos leídos por caja WPF y APIs admin/públicas.
     INSERT INTO system."Settings" ("Key", "Value", "Description", "IsPublic") VALUES
@@ -349,11 +505,7 @@ async function seedDemoData(): Promise<void> {
       ('ContactEmail', 'contacto@ferreteria.local', 'Correo de contacto público', TRUE),
       ('TermsOfService', E'# Términos de uso\n\nAl usar la tienda en línea de Ferreteria usted acepta estos términos. Los precios y existencias pueden variar. Las compras en mostrador se rigen por las políticas de la sucursal.', 'Términos de servicio de la tienda pública', TRUE),
       ('PrivacyPolicy', E'# Política de privacidad\n\nTratamos sus datos (nombre, correo, teléfono) únicamente para atender pedidos, consultas y soporte. No vendemos información personal a terceros.', 'Política de privacidad de la tienda pública', TRUE)
-    ON CONFLICT ("Key") DO UPDATE SET
-      "Value" = EXCLUDED."Value",
-      "Description" = EXCLUDED."Description",
-      "IsPublic" = EXCLUDED."IsPublic",
-      "UpdatedAt" = NOW();
+    ON CONFLICT ("Key") DO NOTHING;
 
     -- IsrBracket: tabla de retención de renta vigente (Decreto Legislativo 293, 30-abr-2025;
     -- amplía la base exenta a $550 mensuales / $275 quincenales). Se siembra para 2026 porque
@@ -369,12 +521,7 @@ async function seedDemoData(): Promise<void> {
       (2026, 'QUINCENAL', 275.01, 447.62, 8.83, 0.10, 275.00, 'Tramo II — 10%'),
       (2026, 'QUINCENAL', 447.63, 1019.05, 30.00, 0.20, 447.62, 'Tramo III — 20%'),
       (2026, 'QUINCENAL', 1019.06, NULL, 144.28, 0.30, 1019.05, 'Tramo IV — 30%')
-    ON CONFLICT (year, "PeriodType", "BracketFrom") DO UPDATE SET
-      "BracketTo" = EXCLUDED."BracketTo",
-      "FixedAmount" = EXCLUDED."FixedAmount",
-      "Rate" = EXCLUDED."Rate",
-      "ExcessOver" = EXCLUDED."ExcessOver",
-      notes = EXCLUDED.notes;
+    ON CONFLICT (year, "PeriodType", "BracketFrom") DO NOTHING;
 
     -- WebUser admin demo (password: admin123) — solo desarrollo.
     -- Vincula EmployeeId al Administrador para órdenes de compra / auditoría.
@@ -388,13 +535,7 @@ async function seedDemoData(): Promise<void> {
       TRUE
     FROM hr."Employees" e
     WHERE e."Dui" = '00000001-0'
-    ON CONFLICT ("Username") DO UPDATE SET
-      "PasswordHash" = EXCLUDED."PasswordHash",
-      "Email" = EXCLUDED."Email",
-      "Role" = 'ADMIN',
-      "EmployeeId" = EXCLUDED."EmployeeId",
-      "IsActive" = TRUE,
-      "UpdatedAt" = NOW();
+    ON CONFLICT ("Username") DO NOTHING;
     END $$;
   `);
 
@@ -403,7 +544,7 @@ async function seedDemoData(): Promise<void> {
     return;
   }
 
-  await prisma.$executeRawUnsafe(`
+  await prisma.$executeRaw(Prisma.sql`
     INSERT INTO system."WebUsers" ("Username", "Email", "PasswordHash", "Role", "EmployeeId", "IsActive")
     VALUES (
       'contador',
@@ -413,18 +554,17 @@ async function seedDemoData(): Promise<void> {
       NULL,
       TRUE
     )
-    ON CONFLICT ("Username") DO UPDATE SET
-      "PasswordHash" = EXCLUDED."PasswordHash",
-      "Email" = EXCLUDED."Email",
-      "Role" = 'ACCOUNTANT',
-      "EmployeeId" = NULL,
-      "IsActive" = TRUE,
-      "UpdatedAt" = NOW();
+    ON CONFLICT ("Username") DO NOTHING;
   `);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  seedDemoData()
+  const env = process.env;
+  assertSeedMode(env);
+  const adminConfig = getAdminSeedConfig(env);
+  seedReferenceData()
+    .then(() => (adminConfig || !shouldSeedDemoData(env) ? seedConfiguredAdmin(adminConfig) : undefined))
+    .then(() => shouldSeedDemoData(env) ? seedDemoData() : undefined)
     .then(async () => {
       await prisma.$disconnect();
     })

@@ -21,7 +21,6 @@ const createSchema = z.object({
   quantity: z.coerce.number().positive(),
   unitCost: z.coerce.number().nonnegative().optional(),
   reason: z.string().max(300).nullable().optional(),
-  employeeId: z.string().uuid().nullable().optional(),
 });
 
 const alertsQuerySchema = z.object({
@@ -61,7 +60,7 @@ export async function listMovements(req: Request, res: Response, next: NextFunct
 export async function createMovement(req: Request, res: Response, next: NextFunction) {
   try {
     const body = createSchema.parse(req.body);
-    jsonSuccess(res, await inventoryService.createMovement(body), 201);
+    jsonSuccess(res, await inventoryService.createMovement(body, req.user?.userId), 201);
   } catch (err) {
     next(err);
   }
@@ -105,7 +104,7 @@ export async function resolveAlert(req: Request, res: Response, next: NextFuncti
 export async function importMovements(req: Request, res: Response, next: NextFunction) {
   try {
     const body = importSchema.parse(req.body);
-    jsonSuccess(res, await inventoryService.importMovements(body.lines));
+    jsonSuccess(res, await inventoryService.importMovements(body.lines, req.user?.userId));
   } catch (err) {
     next(err);
   }

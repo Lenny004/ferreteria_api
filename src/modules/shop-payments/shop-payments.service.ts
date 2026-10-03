@@ -2,9 +2,10 @@
  * Servicio de pagos de pedidos de tienda: creación inicial en checkout y confirmación posterior.
  */
 
-import crypto from "node:crypto";
-import { prisma } from "../../lib/prisma.js";
-import { BadRequestError, NotFoundError } from "../../shared/errors.js";
+import { Prisma } from "@prisma/client";
+import { ConflictError, NotFoundError } from "../../shared/errors.js";
+import { lockShopOrder } from "../../shared/stock-locks.js";
+import { runWithTransactionRetry } from "../../shared/transaction-retry.js";
 import { shopOrderInclude } from "../shop-orders/shop-order.include.js";
 
 export type ShopPaymentMethod =
@@ -13,26 +14,33 @@ export type ShopPaymentMethod =
   | "TARJETA"
   | "CONTRA_ENTREGA";
 
-/** Genera referencia mock para cobro con tarjeta simulado. */
-function mockCardProviderRef(): string {
-  return `sim_${crypto.randomBytes(12).toString("hex")}`;
-}
-
-/** Resuelve estado inicial del pago y del pedido según método elegido en checkout. */
-export function resolveInitialPayment(paymentMethod: ShopPaymentMethod, total: number) {
+/**
+ * Resuelve el estado inicial del pago elegido en checkout.
+ * TODO(pasarela): integrar y verificar una pasarela real; por ahora TARJETA
+ * queda PENDIENTE y solo personal autorizado confirma manualmente el pago.
+ *
+ * @param paymentMethod - Método declarado por el cliente.
+ * @param total - Total Decimal del pedido.
+ * @returns Datos de la fila pendiente y del estado del pedido.
+ */
+export function resolveInitialPayment(
+  paymentMethod: ShopPaymentMethod,
+  total: Prisma.Decimal | number | string,
+) {
+  const amount = new Prisma.Decimal(total);
   switch (paymentMethod) {
     case "TARJETA":
       return {
         method: paymentMethod,
-        amount: total,
-        status: "COMPLETADO" as const,
-        providerRef: mockCardProviderRef(),
-        orderPaymentStatus: "PAGADO" as const,
+        amount,
+        status: "PENDIENTE" as const,
+        providerRef: null as string | null,
+        orderPaymentStatus: "PENDIENTE" as const,
       };
     case "TRANSFERENCIA":
       return {
         method: paymentMethod,
-        amount: total,
+        amount,
         status: "PENDIENTE" as const,
         providerRef: null as string | null,
         orderPaymentStatus: "PENDIENTE" as const,
@@ -41,7 +49,7 @@ export function resolveInitialPayment(paymentMethod: ShopPaymentMethod, total: n
     case "CONTRA_ENTREGA":
       return {
         method: paymentMethod,
-        amount: total,
+        amount,
         status: "PENDIENTE" as const,
         providerRef: null as string | null,
         orderPaymentStatus: "PENDIENTE" as const,
@@ -51,49 +59,58 @@ export function resolveInitialPayment(paymentMethod: ShopPaymentMethod, total: n
 
 export const shopPaymentsService = {
   /**
-   * Registra o completa el pago de un pedido (p. ej. confirmación de transferencia).
-   * Solo el dueño del pedido puede invocarlo.
+   * Confirma manualmente el pago de un pedido desde el panel administrativo.
+   * El pedido se bloquea antes de validar estado para que la operación sea idempotente
+   * frente a doble clic y registre el usuario y la hora de confirmación.
+   *
+   * @param orderId - UUID del pedido que personal confirma.
+   * @param data - Método y referencias opcionales validadas por Zod.
+   * @param webUserId - UUID del WebUser autenticado que realiza la confirmación.
+   * @returns Pedido actualizado con estado de pago PAGADO.
+   * @throws {NotFoundError} Si el pedido no existe.
+   * @throws {ConflictError} Si ya fue pagado o está cancelado.
    */
   async payOrder(
-    shopCustomerId: string,
     orderId: string,
-    data: { method: ShopPaymentMethod; providerRef?: string; notes?: string },
+    data: { method?: ShopPaymentMethod; providerRef?: string; notes?: string },
+    webUserId: string,
   ) {
-    const order = await prisma.shopOrder.findFirst({
-      where: { id: orderId, shopCustomerId },
-      include: { payments: true },
-    });
-    if (!order) throw new NotFoundError("Pedido no encontrado");
-    if (order.paymentStatus === "PAGADO") {
-      throw new BadRequestError("El pedido ya está pagado");
-    }
-    if (order.status === "CANCELADA") {
-      throw new BadRequestError("No se puede pagar un pedido cancelado");
-    }
+    return runWithTransactionRetry(async (tx) => {
+      await lockShopOrder(tx, orderId);
+      const order = await tx.shopOrder.findUnique({
+        where: { id: orderId },
+        include: { payments: true },
+      });
+      if (!order) throw new NotFoundError("Pedido no encontrado");
+      if (order.paymentStatus === "PAGADO") throw new ConflictError("El pedido ya está pagado");
+      if (order.status === "CANCELADA") throw new ConflictError("No se puede pagar un pedido cancelado");
 
-    const pendingPayment = order.payments.find((p) => p.status === "PENDIENTE");
-
-    return prisma.$transaction(async (tx) => {
+      const pendingPayment = order.payments.find((p) => p.status === "PENDIENTE");
+      const confirmedAt = new Date();
       if (pendingPayment) {
         await tx.shopPayment.update({
           where: { id: pendingPayment.id },
           data: {
-            method: data.method,
+            method: data.method ?? pendingPayment.method,
             status: "COMPLETADO",
             providerRef: data.providerRef?.trim() || pendingPayment.providerRef,
             notes: data.notes?.trim() || pendingPayment.notes,
-            updatedAt: new Date(),
+            confirmedByWebUserId: webUserId,
+            confirmedAt,
+            updatedAt: confirmedAt,
           },
         });
       } else {
         await tx.shopPayment.create({
           data: {
             shopOrderId: orderId,
-            method: data.method,
+            method: data.method ?? "EFECTIVO_RETIRO",
             amount: order.total,
             status: "COMPLETADO",
             providerRef: data.providerRef?.trim() || null,
             notes: data.notes?.trim() || null,
+            confirmedByWebUserId: webUserId,
+            confirmedAt,
           },
         });
       }
@@ -102,11 +119,11 @@ export const shopPaymentsService = {
         where: { id: orderId },
         data: {
           paymentStatus: "PAGADO",
-          paymentMethod: data.method,
-          updatedAt: new Date(),
+          paymentMethod: data.method ?? order.paymentMethod ?? "EFECTIVO_RETIRO",
+          updatedAt: confirmedAt,
         },
         include: shopOrderInclude,
       });
-    });
+    }, { maxWait: 10_000, timeout: 60_000 });
   },
 };

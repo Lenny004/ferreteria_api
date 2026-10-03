@@ -19,6 +19,7 @@ const cartItem = { shopCustomerId: customerId, productId, quantity: new Prisma.D
 
 const prismaMock = {
   $transaction: vi.fn(async (callback: (tx: typeof prismaMock) => unknown) => callback(prismaMock)),
+  $queryRaw: vi.fn().mockResolvedValue([]),
   setting: { findUnique: vi.fn() },
   shopCartItem: { findMany: vi.fn(), deleteMany: vi.fn() },
   shopOrder: { create: vi.fn() },
@@ -66,9 +67,13 @@ describe("movimiento de inventario del checkout de tienda", () => {
       ...cartItem,
       product: { ...product, currentStock: new Prisma.Decimal("1") },
     }]);
+    prismaMock.product.findUnique.mockResolvedValueOnce({
+      ...product,
+      currentStock: new Prisma.Decimal("1"),
+    });
 
     await expect(shopOrdersService.checkout(customerId)).rejects.toThrow(/Stock insuficiente/);
-    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    expect(prismaMock.$transaction).toHaveBeenCalled();
     expect(prismaMock.inventoryMovement.create).not.toHaveBeenCalled();
   });
 });
