@@ -1479,7 +1479,7 @@ model ShopOrder {
   deliveryType    String   @default("RETIRO_TIENDA") @map("DeliveryType") @db.VarChar(20)
   /// Dirección de envío (texto libre; null si retiro en tienda)
   shippingAddress String?  @map("ShippingAddress") @db.VarChar(500)
-  /// PENDIENTE | PAGADO | REEMBOLSADO | FALLIDO
+  /// PENDIENTE | EN_VERIFICACION | PAGADO | REEMBOLSADO | FALLIDO
   paymentStatus   String   @default("PENDIENTE") @map("PaymentStatus") @db.VarChar(20)
   /// EFECTIVO_RETIRO | TRANSFERENCIA | TARJETA | CONTRA_ENTREGA
   paymentMethod   String?  @map("PaymentMethod") @db.VarChar(30)
@@ -1511,6 +1511,10 @@ model ShopPayment {
   status      String   @default("PENDIENTE") @map("Status") @db.VarChar(20)
   /// Referencia externa (transferencia, mock charge id, etc.)
   providerRef String?  @map("ProviderRef") @db.VarChar(100)
+  /// Referencia de transferencia enviada por el cliente, pendiente de verificación.
+  customerReference String? @map("CustomerReference") @db.VarChar(100)
+  /// Momento en que el cliente informó o reemplazó la referencia.
+  customerReferenceAt DateTime? @map("CustomerReferenceAt") @db.Timestamptz
   /// Detalle libre (últimos 4 dígitos simulados, banco, etc.)
   notes       String?  @map("Notes") @db.VarChar(300)
   confirmedByWebUserId String?  @map("ConfirmedByWebUserId") @db.Uuid

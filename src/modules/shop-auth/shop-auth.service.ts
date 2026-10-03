@@ -28,6 +28,22 @@ function hashToken(token: string): string {
 }
 
 export const shopAuthService = {
+  /**
+   * Invalida atómicamente el token de sesión si su versión sigue vigente.
+   * La versión pertenece al cliente, por lo que cerrar sesión invalida todas sus sesiones activas por diseño.
+   *
+   * @param customerId - UUID del cliente identificado por el JWT.
+   * @param tokenVersion - Versión incluida en el JWT validado.
+   * @returns `true` si la versión fue incrementada; `false` si ya cambió.
+   */
+  async logout(customerId: string, tokenVersion: number): Promise<boolean> {
+    const result = await prisma.shopCustomer.updateMany({
+      where: { id: customerId, tokenVersion },
+      data: { tokenVersion: { increment: 1 }, updatedAt: new Date() },
+    });
+    return result.count === 1;
+  },
+
   /** Registra cliente y devuelve JWT de acceso. */
   async register(data: {
     email: string;

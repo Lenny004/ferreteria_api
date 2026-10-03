@@ -15,7 +15,7 @@ const product = {
   salePrice: new Prisma.Decimal("7.50"),
 };
 
-const cartItem = { shopCustomerId: customerId, productId, quantity: new Prisma.Decimal("2"), product };
+const cartItem = { id: "850e8400-e29b-41d4-a716-446655440000", shopCustomerId: customerId, productId, quantity: new Prisma.Decimal("2"), product };
 
 const prismaMock = {
   $transaction: vi.fn(async (callback: (tx: typeof prismaMock) => unknown) => callback(prismaMock)),
@@ -60,6 +60,9 @@ describe("movimiento de inventario del checkout de tienda", () => {
     expect(stockUpdate.currentStock).toEqual(new Prisma.Decimal("1"));
     expect(prismaMock.stockAlert.findFirst).toHaveBeenCalled();
     expect(prismaMock.stockAlert.create).toHaveBeenCalledTimes(1);
+    expect(prismaMock.shopCartItem.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: [cartItem.id] }, shopCustomerId: customerId },
+    });
   });
 
   it("mantiene el error de stock insuficiente y no inicia el checkout", async () => {

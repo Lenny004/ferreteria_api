@@ -46,7 +46,6 @@ const updateSchema = z.object({
 const receiveSchema = z.object({
   supplierDocNumber: z.string().max(50).nullable().optional(),
   supplierDocType: z.enum(["CCF", "FAC", "OTRO"]).nullable().optional(),
-  receivedById: z.string().uuid().nullable().optional(),
 });
 
 /** GET `/` — lista órdenes de compra. */

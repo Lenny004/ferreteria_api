@@ -35,8 +35,11 @@ const countDetailInclude = {
   },
 } as const;
 
-/** Opciones para soportar conteos extensos sin abandonar la transacción durante la captura. */
-const INVENTORY_COUNT_TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 60_000 };
+/**
+ * Opciones de transacción de conteos: mismos límites que `runWithTransactionRetry`
+ * (espera máx. 5 s y duración máx. 15 s) para no retener bloqueos de productos más tiempo.
+ */
+const INVENTORY_COUNT_TRANSACTION_OPTIONS = { maxWait: 5_000, timeout: 15_000 };
 
 type CountDetail = Prisma.InventoryCountGetPayload<{ include: typeof countDetailInclude }>;
 type CountLineDetail = CountDetail["lines"][number];

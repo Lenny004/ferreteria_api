@@ -5,7 +5,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
-import { BadRequestError, NotFoundError } from "../../shared/errors.js";
+import { BadRequestError, ConflictError, NotFoundError } from "../../shared/errors.js";
 import {
   resolveInitialPayment,
   type ShopPaymentMethod,
@@ -13,7 +13,7 @@ import {
 import { movementMagnitude, signedMovementDelta } from "../inventory/movement-direction.js";
 import { syncStockAlert } from "../inventory/inventory.service.js";
 import { shopOrderClientInclude, shopOrderInclude } from "./shop-order.include.js";
-import { lockProducts, lockShopCustomer } from "../../shared/stock-locks.js";
+import { lockProducts, lockShopCustomer, lockShopOrder } from "../../shared/stock-locks.js";
 import { runWithTransactionRetry } from "../../shared/transaction-retry.js";
 import { calculateIva, roundMoney } from "../../shared/tax.js";
 
@@ -164,9 +164,14 @@ export const shopOrdersService = {
         await syncStockAlert(tx, product.id, stockAfter, new Prisma.Decimal(product.minStock));
       }
 
-      await tx.shopCartItem.deleteMany({ where: { shopCustomerId } });
+      await tx.shopCartItem.deleteMany({
+        where: {
+          id: { in: cart.map((item) => item.id) },
+          shopCustomerId,
+        },
+      });
       return created;
-    }, { maxWait: 10_000, timeout: 60_000 });
+    });
 
     return order;
   },
@@ -192,9 +197,16 @@ export const shopOrdersService = {
   },
 
   /** Lista pedidos para administración con filtros. */
-  async listAdmin(params: { status?: string; q?: string; take?: number; skip?: number }) {
+  async listAdmin(params: {
+    status?: string;
+    paymentStatus?: string;
+    q?: string;
+    take?: number;
+    skip?: number;
+  }) {
     const where: Prisma.ShopOrderWhereInput = {};
     if (params.status) where.status = params.status;
+    if (params.paymentStatus) where.paymentStatus = params.paymentStatus;
     if (params.q) {
       where.OR = [
         { shopCustomer: { fullName: { contains: params.q, mode: "insensitive" } } },
@@ -217,30 +229,128 @@ export const shopOrdersService = {
     return { items, total, take, skip };
   },
 
-  /** Actualiza estado o notas admin; no reactiva pedidos cancelados. */
+  /**
+   * Obtiene el detalle administrativo de un pedido con pagos y cliente.
+   *
+   * @param orderId - UUID del pedido.
+   * @returns Pedido con líneas, cliente y pagos.
+   * @throws {NotFoundError} Si el pedido no existe.
+   */
+  async getAdmin(orderId: string) {
+    const order = await prisma.shopOrder.findUnique({
+      where: { id: orderId },
+      include: shopOrderInclude,
+    });
+    if (!order) throw new NotFoundError("Pedido no encontrado");
+    return order;
+  },
+
+  /**
+   * Actualiza estado o notas admin bajo bloqueo; no reactiva pedidos cancelados.
+   *
+   * @param orderId - UUID del pedido.
+   * @param data - Estado y notas administrativas validadas.
+   * @returns Pedido actualizado con sus relaciones.
+   * @throws {NotFoundError} Si el pedido no existe.
+   * @throws {ConflictError} Si se reactiva, cancela un pedido pagado o hay estado incompatible.
+   * @throws {BadRequestError} Si el estado no pertenece al catálogo permitido.
+   */
   async updateAdmin(
     orderId: string,
     data: Partial<{ status: string; adminNotes: string | null }>,
   ) {
-    const existing = await prisma.shopOrder.findUnique({ where: { id: orderId } });
-    if (!existing) throw new NotFoundError("Pedido no encontrado");
-
     const allowed = ["PENDIENTE", "CONFIRMADA", "LISTA_RETIRO", "ENTREGADA", "CANCELADA"];
     if (data.status && !allowed.includes(data.status)) {
       throw new BadRequestError("Estado de pedido inválido");
     }
-    if (existing.status === "CANCELADA" && data.status && data.status !== "CANCELADA") {
-      throw new BadRequestError("No se puede reactivar un pedido cancelado");
-    }
+    return runWithTransactionRetry(async (tx) => {
+      await lockShopOrder(tx, orderId);
+      const existing = await tx.shopOrder.findUnique({ where: { id: orderId } });
+      if (!existing) throw new NotFoundError("Pedido no encontrado");
+      if (existing.status === "CANCELADA" && data.status && data.status !== "CANCELADA") {
+        throw new ConflictError("No se puede reactivar un pedido cancelado");
+      }
+      if (data.status === "CANCELADA" && existing.paymentStatus === "PAGADO") {
+        throw new ConflictError("Pedido pagado: no se puede cancelar sin un reembolso registrado");
+      }
 
-    return prisma.shopOrder.update({
-      where: { id: orderId },
-      data: {
-        ...(data.status !== undefined ? { status: data.status } : {}),
-        ...(data.adminNotes !== undefined ? { adminNotes: data.adminNotes } : {}),
-        updatedAt: new Date(),
-      },
-      include: shopOrderInclude,
+      return tx.shopOrder.update({
+        where: { id: orderId },
+        data: {
+          ...(data.status !== undefined ? { status: data.status } : {}),
+          ...(data.adminNotes !== undefined ? { adminNotes: data.adminNotes } : {}),
+          updatedAt: new Date(),
+        },
+        include: shopOrderInclude,
+      });
+    });
+  },
+
+  /**
+   * Registra o reemplaza la referencia de transferencia enviada por el dueño del pedido.
+   * La operación solo deja el pago en verificación; nunca confirma ni completa el pedido.
+   *
+   * @param shopCustomerId - UUID del cliente autenticado.
+   * @param orderId - UUID del pedido propio.
+   * @param data - Referencia y notas validadas por el controlador.
+   * @returns Pedido actualizado para la vista del cliente.
+   * @throws {NotFoundError} Si el pedido no existe o no pertenece al cliente.
+   * @throws {ConflictError} Si el método, estado de pago o estado del pedido no permiten referencias.
+   */
+  async submitTransferReference(
+    shopCustomerId: string,
+    orderId: string,
+    data: { reference: string; notes?: string },
+  ) {
+    return runWithTransactionRetry(async (tx) => {
+      await lockShopOrder(tx, orderId);
+      const order = await tx.shopOrder.findFirst({
+        where: { id: orderId, shopCustomerId },
+        include: { payments: true },
+      });
+      if (!order) throw new NotFoundError("Pedido no encontrado");
+      if (order.status === "CANCELADA") {
+        throw new ConflictError("No se puede registrar una transferencia en un pedido cancelado");
+      }
+      if (order.paymentMethod !== "TRANSFERENCIA") {
+        throw new ConflictError("El pedido no usa transferencia bancaria");
+      }
+      if (!["PENDIENTE", "EN_VERIFICACION"].includes(order.paymentStatus)) {
+        throw new ConflictError("El estado de pago del pedido no permite registrar una referencia");
+      }
+
+      const pendingPayment = order.payments.find((payment) => payment.status === "PENDIENTE");
+      const now = new Date();
+      if (pendingPayment) {
+        // Solo se registra la referencia: el pago sigue PENDIENTE hasta que el personal lo confirme.
+        await tx.shopPayment.update({
+          where: { id: pendingPayment.id },
+          data: {
+            customerReference: data.reference.trim(),
+            customerReferenceAt: now,
+            ...(data.notes !== undefined ? { notes: data.notes.trim() || null } : {}),
+            updatedAt: now,
+          },
+        });
+      } else {
+        await tx.shopPayment.create({
+          data: {
+            shopOrderId: order.id,
+            method: "TRANSFERENCIA",
+            amount: order.total,
+            status: "PENDIENTE",
+            customerReference: data.reference.trim(),
+            customerReferenceAt: now,
+            notes: data.notes?.trim() || null,
+          },
+        });
+      }
+
+      return tx.shopOrder.update({
+        where: { id: order.id },
+        data: { paymentStatus: "EN_VERIFICACION", updatedAt: now },
+        include: shopOrderClientInclude,
+      });
     });
   },
 };

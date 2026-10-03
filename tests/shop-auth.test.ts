@@ -22,6 +22,11 @@ const prismaMock = {
   shopCustomer: {
     findUnique: vi.fn().mockResolvedValue(customer),
     update: vi.fn().mockResolvedValue({ ...customer, tokenVersion: 1 }),
+    updateMany: vi.fn(async ({ where }: { where: { id: string; tokenVersion: number } }) => {
+      if (customer.id !== where.id || customer.tokenVersion !== where.tokenVersion) return { count: 0 };
+      customer.tokenVersion += 1;
+      return { count: 1 };
+    }),
   },
 };
 
@@ -100,7 +105,7 @@ describe("sesión de tienda", () => {
     expect(bearer.status).toBe(200);
   });
 
-  it("rota CSRF y cierra la sesión de tienda con protección CSRF", async () => {
+  it("rota CSRF, exige CSRF al cerrar por cookie e invalida el token", async () => {
     const { default: app } = await import("../src/app.js");
     const login = await request(app)
       .post("/api/v1/shop/auth/login")
@@ -120,12 +125,14 @@ describe("sesión de tienda", () => {
       expect.stringContaining("Path=/api/v1/shop"),
     ]));
 
+    const updatesBeforeRejected = prismaMock.shopCustomer.updateMany.mock.calls.length;
     const rejectedLogout = await request(app)
       .post("/api/v1/shop/auth/logout")
       .set("Cookie", cookieHeader);
 
     expect(rejectedLogout.status).toBe(403);
     expect(rejectedLogout.body.error).toBe("CSRF_INVALID");
+    expect(prismaMock.shopCustomer.updateMany).toHaveBeenCalledTimes(updatesBeforeRejected);
 
     const rotatedCsrf = rotated.body.data.csrfToken as string;
     const logout = await request(app)
@@ -138,5 +145,21 @@ describe("sesión de tienda", () => {
       expect.stringContaining("fer_shop_access=;"),
       expect.stringContaining("fer_shop_csrf=;"),
     ]));
+    const invalidated = await request(app)
+      .get("/api/v1/shop/auth/me")
+      .set("Authorization", `Bearer ${access}`);
+    expect(invalidated.status).toBe(401);
+  });
+
+  it("logout sin token o con token inválido no consulta la BD", async () => {
+    const { default: app } = await import("../src/app.js");
+    const before = prismaMock.shopCustomer.updateMany.mock.calls.length;
+    const withoutToken = await request(app).post("/api/v1/shop/auth/logout");
+    const invalid = await request(app)
+      .post("/api/v1/shop/auth/logout")
+      .set("Authorization", "Bearer token-invalido");
+    expect(withoutToken.status).toBe(200);
+    expect(invalid.status).toBe(200);
+    expect(prismaMock.shopCustomer.updateMany).toHaveBeenCalledTimes(before);
   });
 });

@@ -134,6 +134,31 @@ async function resolveEmployeeId(
   return fallback.id;
 }
 
+/**
+ * Resuelve al empleado activo vinculado al usuario autenticado para atribuir una recepción.
+ * No usa un empleado sustituto: una recepción sin vínculo conserva `ReceivedById` nulo.
+ *
+ * @param tx - Cliente Prisma de la transacción activa.
+ * @param webUserId - UUID del usuario del panel que recibe la OC.
+ * @returns UUID del empleado activo vinculado o `null` si no existe vínculo válido.
+ */
+async function resolveReceivingEmployeeId(
+  tx: Prisma.TransactionClient,
+  webUserId?: string,
+): Promise<string | null> {
+  if (!webUserId) return null;
+  const user = await tx.webUser.findUnique({
+    where: { id: webUserId },
+    select: { employeeId: true },
+  });
+  if (!user?.employeeId) return null;
+  const employee = await tx.employee.findUnique({
+    where: { id: user.employeeId },
+    select: { id: true, isActive: true },
+  });
+  return employee?.isActive ? employee.id : null;
+}
+
 export const purchaseOrdersService = {
   /** Lista órdenes de compra con filtros de estado, proveedor y texto. */
   async list(params: {
@@ -231,7 +256,16 @@ export const purchaseOrdersService = {
     });
   },
 
-  /** Actualiza OC solo en estado BORRADOR; puede reemplazar líneas y recalcular totales. */
+  /**
+   * Actualiza una OC dentro de una transacción bloqueada; puede reemplazar líneas y recalcular totales.
+   *
+   * @param id - UUID de la orden de compra.
+   * @param input - Campos validados y líneas opcionales de la OC.
+   * @returns Orden actualizada con proveedor, líneas y productos.
+   * @throws {NotFoundError} Si la OC o el proveedor no existen.
+   * @throws {ConflictError} Si la OC no está en BORRADOR.
+   * @throws {BadRequestError} Si las líneas no cumplen las reglas de cantidades y costos.
+   */
   async update(
     id: string,
     input: {
@@ -243,25 +277,22 @@ export const purchaseOrdersService = {
       lines?: OrderLineInput[];
     },
   ) {
-    const existing = await prisma.purchaseOrder.findUnique({
-      where: { id },
-      include: { details: true },
-    });
-    if (!existing) throw new NotFoundError("Orden de compra no encontrada");
-    if (existing.status !== "BORRADOR") {
-      throw new BadRequestError("Solo se pueden editar órdenes en estado BORRADOR");
-    }
-
-    if (input.supplierId) {
-      const supplier = await prisma.supplier.findUnique({ where: { id: input.supplierId } });
-      if (!supplier || !supplier.isActive) {
-        throw new NotFoundError("Proveedor no encontrado o inactivo");
+    return runWithTransactionRetry(async (tx) => {
+      await lockPurchaseOrder(tx, id);
+      const existing = await tx.purchaseOrder.findUnique({ where: { id } });
+      if (!existing) throw new NotFoundError("Orden de compra no encontrada");
+      if (existing.status !== "BORRADOR") {
+        throw new ConflictError("Solo se pueden editar órdenes en estado BORRADOR");
       }
-    }
 
-    const totals = input.lines ? computeOrderTotals(input.lines) : null;
+      if (input.supplierId) {
+        const supplier = await tx.supplier.findUnique({ where: { id: input.supplierId } });
+        if (!supplier || !supplier.isActive) {
+          throw new NotFoundError("Proveedor no encontrado o inactivo");
+        }
+      }
 
-    return prisma.$transaction(async (tx) => {
+      const totals = input.lines ? computeOrderTotals(input.lines) : null;
       if (totals) {
         await tx.purchaseOrderDetail.deleteMany({ where: { purchaseOrderId: id } });
         await tx.purchaseOrderDetail.createMany({
@@ -296,38 +327,62 @@ export const purchaseOrdersService = {
     });
   },
 
-  /** Pasa OC de BORRADOR a CONFIRMADA. */
+  /**
+   * Pasa una OC de BORRADOR a CONFIRMADA bajo bloqueo pesimista.
+   *
+   * @param id - UUID de la orden de compra.
+   * @returns Orden confirmada con sus relaciones.
+   * @throws {NotFoundError} Si la OC no existe.
+   * @throws {ConflictError} Si la OC no está en BORRADOR.
+   * @throws {BadRequestError} Si la OC no tiene líneas.
+   */
   async confirm(id: string) {
-    const order = await prisma.purchaseOrder.findUnique({
-      where: { id },
-      include: { details: true },
-    });
-    if (!order) throw new NotFoundError("Orden de compra no encontrada");
-    if (order.status !== "BORRADOR") {
-      throw new BadRequestError("Solo se pueden confirmar órdenes en BORRADOR");
-    }
-    if (!order.details.length) {
-      throw new BadRequestError("La orden no tiene líneas");
-    }
-    return prisma.purchaseOrder.update({
-      where: { id },
-      data: { status: "CONFIRMADA", updatedAt: new Date() },
-      include: orderInclude,
+    return runWithTransactionRetry(async (tx) => {
+      await lockPurchaseOrder(tx, id);
+      const order = await tx.purchaseOrder.findUnique({
+        where: { id },
+        include: { details: true },
+      });
+      if (!order) throw new NotFoundError("Orden de compra no encontrada");
+      if (order.status !== "BORRADOR") {
+        throw new ConflictError("Solo se pueden confirmar órdenes en BORRADOR");
+      }
+      if (!order.details.length) {
+        throw new BadRequestError("La orden no tiene líneas");
+      }
+      return tx.purchaseOrder.update({
+        where: { id },
+        data: { status: "CONFIRMADA", updatedAt: new Date() },
+        include: orderInclude,
+      });
     });
   },
 
-  /** Cancela OC que no esté RECIBIDA. */
+  /**
+   * Cancela una OC que no esté RECIBIDA; repetir CANCELADA devuelve la misma OC.
+   *
+   * @param id - UUID de la orden de compra.
+   * @returns Orden cancelada o ya cancelada.
+   * @throws {NotFoundError} Si la OC no existe.
+   * @throws {ConflictError} Si la OC ya fue recibida.
+   */
   async cancel(id: string) {
-    const order = await prisma.purchaseOrder.findUnique({ where: { id } });
-    if (!order) throw new NotFoundError("Orden de compra no encontrada");
-    if (order.status === "RECIBIDA") {
-      throw new BadRequestError("No se puede cancelar una orden ya recibida");
-    }
-    if (order.status === "CANCELADA") return this.getById(id);
-    return prisma.purchaseOrder.update({
-      where: { id },
-      data: { status: "CANCELADA", updatedAt: new Date() },
-      include: orderInclude,
+    return runWithTransactionRetry(async (tx) => {
+      await lockPurchaseOrder(tx, id);
+      const order = await tx.purchaseOrder.findUnique({
+        where: { id },
+        include: orderInclude,
+      });
+      if (!order) throw new NotFoundError("Orden de compra no encontrada");
+      if (order.status === "RECIBIDA") {
+        throw new ConflictError("No se puede cancelar una orden ya recibida");
+      }
+      if (order.status === "CANCELADA") return order;
+      return tx.purchaseOrder.update({
+        where: { id },
+        data: { status: "CANCELADA", updatedAt: new Date() },
+        include: orderInclude,
+      });
     });
   },
 
@@ -339,7 +394,7 @@ export const purchaseOrdersService = {
    *
    * @param id - UUID de la orden de compra.
    * @param input - Datos opcionales del documento de recepción.
-   * @param webUserId - Usuario web que solicita la recepción.
+   * @param webUserId - Usuario web que solicita la recepción; su empleado activo vinculado atribuye el movimiento.
    * @returns Orden recibida con sus detalles.
    * @throws {ConflictError} Si la orden ya fue recibida o está cancelada.
    * @throws {BadRequestError} Si la orden no tiene líneas o costos válidos.
@@ -350,7 +405,6 @@ export const purchaseOrdersService = {
     input: {
       supplierDocNumber?: string | null;
       supplierDocType?: string | null;
-      receivedById?: string | null;
     } = {},
     webUserId?: string,
   ) {
@@ -379,7 +433,7 @@ export const purchaseOrdersService = {
 
       await lockProducts(tx, order.details.map((detail) => detail.productId));
 
-      const receivedById = await resolveEmployeeId(input.receivedById ?? order.employeeId, webUserId);
+      const receivedById = await resolveReceivingEmployeeId(tx, webUserId);
 
       for (const detail of order.details) {
         const product = await tx.product.findUnique({ where: { id: detail.productId } });

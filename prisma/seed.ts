@@ -10,6 +10,7 @@
  * Usuarios WebUser demo: admin / admin123 y contador / contador123 (solo desarrollo).
  */
 
+import 'dotenv/config';
 import { Prisma, PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { pathToFileURL } from 'node:url';
@@ -31,12 +32,21 @@ export const SALE_UNITS = [
   { code: 'JUEGO', name: 'Juego', abbreviation: 'jgo' },
 ] as const;
 
-/** Escapa un literal SQL de texto (valores constantes del propio seed, nunca entrada de usuario). */
+/**
+ * Escapa un literal SQL de texto de los valores constantes del seed.
+ *
+ * @param value - Texto constante que se insertará dentro de SQL generado.
+ * @returns Literal SQL entrecomillado y escapado.
+ */
 function sqlText(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-/** Filas VALUES generadas desde {@link SALE_UNITS} para que el catálogo tenga una sola fuente. */
+/**
+ * Genera los valores SQL del catálogo histórico del POS.
+ *
+ * @returns Filas SQL con unidades comerciales constantes.
+ */
 export function saleUnitValuesSql(): string {
   return SALE_UNITS.map((unit) => `(${sqlText(unit.code)}, ${sqlText(unit.name)}, ${sqlText(unit.abbreviation)})`).join(",\n      ");
 }
@@ -183,7 +193,13 @@ async function seedReferenceData(): Promise<void> {
   `);
 }
 
-/** Crea el administrador inicial definido por entorno sin modificar uno existente. */
+/**
+ * Crea el administrador inicial definido por entorno sin modificar uno existente.
+ *
+ * @param config - Credenciales validadas o `null` si no se solicitó admin inicial.
+ * @returns Promesa que termina después de comprobar o crear el administrador.
+ * @throws {Prisma.PrismaClientKnownRequestError} Si falla una operación distinta a unicidad.
+ */
 async function seedConfiguredAdmin(config: AdminSeedConfig | null): Promise<void> {
   if (!config) {
     console.warn(`[seed] ${ADMIN_SEED_OMITTED_MESSAGE}`);
@@ -225,7 +241,12 @@ async function seedConfiguredAdmin(config: AdminSeedConfig | null): Promise<void
   }
 }
 
-/** Identifica conflictos de unicidad del driver sin ocultar otros errores del seed. */
+/**
+ * Identifica conflictos de unicidad del driver sin ocultar otros errores del seed.
+ *
+ * @param error - Error devuelto por Prisma o PostgreSQL.
+ * @returns `true` cuando el error representa una violación de unicidad.
+ */
 function isUniqueViolation(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
   const candidate = error as { code?: unknown; meta?: { code?: unknown }; message?: unknown };
@@ -540,7 +561,7 @@ async function seedDemoData(): Promise<void> {
   `);
 
   if (!shouldSeedDemoAccountant()) {
-    console.warn('[seed] Se omitió el usuario demo contador porque NODE_ENV=production.');
+    console.warn('[seed] Se omitió el usuario demo contador: requiere SEED_DEMO=true fuera de producción.');
     return;
   }
 

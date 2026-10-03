@@ -13,6 +13,9 @@ type RetryOptions = {
   baseDelayMs?: number;
 };
 
+/** Códigos de concurrencia transitoria que permiten repetir una transacción. */
+type RetryableTransactionCode = "P2034" | "40001" | "40P01";
+
 /**
  * Determina si un error representa un conflicto transitorio de concurrencia.
  * Solo se aceptan P2034, P2010 con SQLSTATE 40001/40P01 en metadatos o mensaje;
@@ -22,19 +25,31 @@ type RetryOptions = {
  * @returns `true` únicamente para serialización y deadlock.
  */
 export function isRetryableTransactionError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
+  return getRetryableTransactionCode(error) !== undefined;
+}
+
+/**
+ * Obtiene el código estable de un conflicto transitorio de transacción.
+ *
+ * @param error - Error devuelto por Prisma o PostgreSQL.
+ * @returns Código de reintento o `undefined` para errores no transitorios.
+ */
+function getRetryableTransactionCode(error: unknown): RetryableTransactionCode | undefined {
+  if (!error || typeof error !== "object") return undefined;
   const candidate = error as {
     code?: unknown;
     meta?: { code?: unknown; sqlState?: unknown; sqlstate?: unknown; message?: unknown };
     message?: unknown;
   };
-  if (candidate.code === "P2034") return true;
+  if (candidate.code === "P2034") return "P2034";
   const sqlState = candidate.meta?.code ?? candidate.meta?.sqlState ?? candidate.meta?.sqlstate;
   const message = [candidate.message, candidate.meta?.message]
     .filter((value): value is string => typeof value === "string")
     .join(" ");
-  if (sqlState === "40001" || sqlState === "40P01") return true;
-  return candidate.code === "P2010" && /\b(?:40001|40P01)\b/.test(message);
+  if (sqlState === "40001" || sqlState === "40P01") return sqlState;
+  if (candidate.code === "P2010" && /\b40001\b/.test(message)) return "40001";
+  if (candidate.code === "P2010" && /\b40P01\b/.test(message)) return "40P01";
+  return undefined;
 }
 
 /**
@@ -56,12 +71,19 @@ export async function runWithTransactionRetry<T>(
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       return await prisma.$transaction(callback, {
-        maxWait: options.maxWait ?? 10_000,
-        timeout: options.timeout ?? 60_000,
+        maxWait: options.maxWait ?? 5_000,
+        timeout: options.timeout ?? 15_000,
       });
     } catch (error) {
       if (!isRetryableTransactionError(error) || attempt === maxAttempts) throw error;
       const delay = baseDelayMs * 2 ** (attempt - 1) + Math.floor(Math.random() * baseDelayMs);
+      console.warn(JSON.stringify({
+        event: "transaction_retry",
+        code: getRetryableTransactionCode(error),
+        attempt,
+        maxAttempts,
+        delayMs: delay,
+      }));
       if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
