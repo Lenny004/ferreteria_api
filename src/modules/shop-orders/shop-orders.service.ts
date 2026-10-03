@@ -37,6 +37,30 @@ type RestockSummary = {
 };
 
 /**
+ * Agrega la línea de cancelación al historial administrativo del pedido.
+ * La nota nueva se limita en el esquema HTTP; `AdminNotes` es `TEXT`, por lo
+ * que las notas existentes no consumen ese límite ni se truncan al concatenar.
+ *
+ * @param baseNotes - Notas administrativas previas o proporcionadas en la petición.
+ * @param cancellationNote - Nota nueva, ya validada como no vacía.
+ * @param paymentStatus - Estado de pago que determina el prefijo de auditoría.
+ * @returns Notas administrativas con la nueva línea al final.
+ */
+export function appendCancellationNote(
+  baseNotes: string | null | undefined,
+  cancellationNote: string,
+  paymentStatus: string,
+): string {
+  const base = baseNotes?.trim() ?? "";
+  const note = cancellationNote.trim();
+  const prefix = paymentStatus === "EN_VERIFICACION"
+    ? "Cancelación con pago en verificación: "
+    : "Cancelación: ";
+  const line = `${prefix}${note}`;
+  return base ? `${base}\n${line}` : line;
+}
+
+/**
  * Calcula la cantidad aún no devuelta y el costo promedio de las salidas del pedido.
  * Incluye movimientos antiguos sin `ShopOrderId` cuando conservan el motivo exacto
  * del checkout o de la cancelación anterior.
@@ -322,22 +346,24 @@ export const shopOrdersService = {
 
   /**
    * Actualiza estado o notas admin bajo bloqueo; no reactiva pedidos cancelados.
-   * Cancelar durante EN_VERIFICACION exige una nota nueva antes de reponer inventario.
+   * Cancelar durante EN_VERIFICACION exige `cancellationNote` antes de reponer inventario.
+   * La nota se agrega a `AdminNotes`, que es `TEXT`; por eso solo la nota nueva
+   * tiene límite de 300 caracteres y nunca se truncan las notas existentes.
    * Al cancelar, bloquea primero el pedido y después los productos. Checkout,
    * recepción de OC y esta operación comparten el orden de productos entre sus
    * fases de stock; `payOrder` solo bloquea el pedido, por lo que no introduce
    * un ciclo de espera.
    *
    * @param orderId - UUID del pedido.
-   * @param data - Estado y notas administrativas validadas.
+   * @param data - Estado, notas administrativas y nota específica de cancelación validados.
    * @returns Pedido actualizado con sus relaciones.
    * @throws {NotFoundError} Si el pedido no existe.
-   * @throws {ConflictError} Si se reactiva, cancela un pedido pagado o hay estado incompatible.
+   * @throws {ConflictError} Si se reactiva, cancela un pedido pagado, falta nota de verificación o hay estado incompatible.
    * @throws {BadRequestError} Si el estado no pertenece al catálogo permitido.
    */
   async updateAdmin(
     orderId: string,
-    data: Partial<{ status: string; adminNotes: string | null }>,
+    data: Partial<{ status: string; adminNotes: string | null; cancellationNote: string }>,
   ) {
     const allowed = ["PENDIENTE", "CONFIRMADA", "LISTA_RETIRO", "ENTREGADA", "CANCELADA"];
     if (data.status && !allowed.includes(data.status)) {
@@ -347,6 +373,9 @@ export const shopOrdersService = {
       await lockShopOrder(tx, orderId);
       const existing = await tx.shopOrder.findUnique({ where: { id: orderId } });
       if (!existing) throw new NotFoundError("Pedido no encontrado");
+      if (data.cancellationNote !== undefined && data.status !== "CANCELADA") {
+        throw new BadRequestError("cancellationNote solo se puede usar al cancelar el pedido");
+      }
       if (existing.status === "CANCELADA" && data.status && data.status !== "CANCELADA") {
         throw new ConflictError("No se puede reactivar un pedido cancelado");
       }
@@ -356,14 +385,13 @@ export const shopOrdersService = {
       if (data.status === "CANCELADA" && existing.status === "ENTREGADA") {
         throw new ConflictError("Pedido entregado: registra una devolución en lugar de cancelar");
       }
-      const cancellationNote = data.adminNotes?.trim();
-      if (data.status === "CANCELADA" && existing.status !== "CANCELADA" && existing.paymentStatus === "EN_VERIFICACION") {
-        if (!cancellationNote || cancellationNote === existing.adminNotes?.trim()) {
-          throw new BadRequestError("Indica una nota para cancelar un pedido con pago en verificación");
-        }
+      const isNewCancellation = data.status === "CANCELADA" && existing.status !== "CANCELADA";
+      const cancellationNote = data.cancellationNote?.trim();
+      if (isNewCancellation && existing.paymentStatus === "EN_VERIFICACION" && !cancellationNote) {
+        throw new ConflictError("El pago de este pedido está en verificación: agrega una nota de cancelación para continuar");
       }
 
-      if (data.status === "CANCELADA" && existing.status !== "CANCELADA") {
+      if (isNewCancellation) {
         const summary = await calculatePendingRestock(tx, orderId);
         const pendingByProduct = new Map<string, { quantity: Prisma.Decimal; unitCost: Prisma.Decimal }>();
         for (const [productId, item] of summary) {
@@ -410,15 +438,21 @@ export const shopOrdersService = {
         }
       }
 
+      const adminNotes = isNewCancellation && cancellationNote
+        ? appendCancellationNote(
+            data.adminNotes !== undefined ? data.adminNotes : existing.adminNotes,
+            cancellationNote,
+            existing.paymentStatus,
+          )
+        : data.adminNotes !== undefined
+          ? data.adminNotes
+          : undefined;
+
       return tx.shopOrder.update({
         where: { id: orderId },
         data: {
           ...(data.status !== undefined ? { status: data.status } : {}),
-          ...(data.status === "CANCELADA" && cancellationNote
-            ? { adminNotes: cancellationNote }
-            : data.adminNotes !== undefined
-              ? { adminNotes: data.adminNotes }
-              : {}),
+          ...(adminNotes !== undefined ? { adminNotes } : {}),
           updatedAt: new Date(),
         },
         include: shopOrderInclude,

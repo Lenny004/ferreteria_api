@@ -287,6 +287,7 @@ model PurchaseOrder {
   supplierId        String    @map("SupplierId") @db.Uuid
   employeeId        String?   @map("EmployeeId") @db.Uuid
   createdByWebUserId String?   @map("CreatedByWebUserId") @db.Uuid
+  receivedByWebUserId String?  @map("ReceivedByWebUserId") @db.Uuid
   /// Número de documento del proveedor (factura/CCF recibido)
   supplierDocNumber String?   @map("SupplierDocNumber") @db.VarChar(50)
   /// Tipo de documento recibido: CCF, FAC, OTRO
@@ -305,6 +306,7 @@ model PurchaseOrder {
 
   employee           Employee?             @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKPurchaseOrdersEmployee")
   createdByWebUser   WebUser?              @relation("PurchaseOrderCreatedBy", fields: [createdByWebUserId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKPurchaseOrdersCreatedByWebUser")
+  receivedByWebUser  WebUser?              @relation("PurchaseOrderReceivedBy", fields: [receivedByWebUserId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKPurchaseOrdersReceivedByWebUser")
   supplier           Supplier              @relation(fields: [supplierId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "PurchaseOrders_SupplierId_fkey")
   details            PurchaseOrderDetail[]
   inventoryMovements InventoryMovement[]
@@ -312,6 +314,7 @@ model PurchaseOrder {
   @@index([supplierId], map: "IdxPurchaseOrdersSupplier")
   @@index([status], map: "IdxPurchaseOrdersStatus")
   @@index([createdByWebUserId], map: "IdxPurchaseOrdersCreatedByWebUser")
+  @@index([receivedByWebUserId], map: "IdxPurchaseOrdersReceivedByWebUser")
   @@map("PurchaseOrders")
   @@schema("purchasing")
 }
@@ -1426,6 +1429,7 @@ model WebUser {
   inventoryCountLines      InventoryCountLine[] @relation("InventoryCountLineCountedBy")
   shopPaymentsConfirmed    ShopPayment[]        @relation("ShopPaymentConfirmedBy")
   purchaseOrdersCreated    PurchaseOrder[]     @relation("PurchaseOrderCreatedBy")
+  purchaseOrdersReceived   PurchaseOrder[]     @relation("PurchaseOrderReceivedBy")
 
   @@map("WebUsers")
   @@schema("system")

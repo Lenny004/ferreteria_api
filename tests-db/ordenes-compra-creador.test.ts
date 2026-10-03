@@ -41,8 +41,12 @@ async function createFixture(): Promise<Fixture> {
   return fixture;
 }
 
-/** Elimina primero la OC y después las filas referenciadas por sus datos de prueba. */
+/** Elimina movimientos, detalles y OC antes de las filas referenciadas del fixture. */
 async function deleteFixture(fixture: Fixture): Promise<void> {
+  await prisma.$executeRaw`DELETE FROM public."InventoryMovements"
+    WHERE "PurchaseOrderId" IN (
+      SELECT "id" FROM purchasing."PurchaseOrders" WHERE "CreatedByWebUserId" = ${fixture.webUserId}::uuid
+    )`;
   await prisma.$executeRaw`DELETE FROM purchasing."PurchaseOrderDetails"
     WHERE "PurchaseOrderId" IN (
       SELECT "id" FROM purchasing."PurchaseOrders" WHERE "CreatedByWebUserId" = ${fixture.webUserId}::uuid
@@ -72,6 +76,28 @@ describe("creador de órdenes de compra", () => {
         SELECT "EmployeeId" AS "employeeId", "CreatedByWebUserId" AS "createdByWebUserId"
         FROM purchasing."PurchaseOrders" WHERE "id" = ${order.id}::uuid`;
       expect(rows).toEqual([{ employeeId: null, createdByWebUserId: fixture.webUserId }]);
+
+      await purchaseOrdersService.receive(order.id, {}, fixture.webUserId);
+
+      const received = await prisma.$queryRaw<Array<{
+        receivedByWebUserId: string | null;
+        receivedById: string | null;
+        movementType: string;
+        purchaseOrderId: string | null;
+      }>>`
+        SELECT po."ReceivedByWebUserId" AS "receivedByWebUserId",
+          po."ReceivedById" AS "receivedById",
+          im."MovementType" AS "movementType",
+          im."PurchaseOrderId" AS "purchaseOrderId"
+        FROM purchasing."PurchaseOrders" po
+        LEFT JOIN public."InventoryMovements" im ON im."PurchaseOrderId" = po."id"
+        WHERE po."id" = ${order.id}::uuid`;
+      expect(received).toEqual([{
+        receivedByWebUserId: fixture.webUserId,
+        receivedById: null,
+        movementType: "ENTRADA_COMPRA",
+        purchaseOrderId: order.id,
+      }]);
     } finally {
       await deleteFixture(fixture);
     }

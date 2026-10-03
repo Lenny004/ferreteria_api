@@ -45,6 +45,7 @@ const adminUpdateSchema = z.object({
     .enum(["PENDIENTE", "CONFIRMADA", "LISTA_RETIRO", "ENTREGADA", "CANCELADA"])
     .optional(),
   adminNotes: z.string().max(2000).nullable().optional(),
+  cancellationNote: z.string().trim().min(1).max(300).optional(),
 });
 
 const transferReferenceSchema = z.object({

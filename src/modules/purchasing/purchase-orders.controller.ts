@@ -111,9 +111,10 @@ export async function cancel(req: Request, res: Response, next: NextFunction) {
 export async function receive(req: Request, res: Response, next: NextFunction) {
   try {
     const body = receiveSchema.parse(req.body ?? {});
+    if (!req.user) throw new UnauthorizedError("No autorizado: falta el usuario autenticado");
     jsonSuccess(
       res,
-      await purchaseOrdersService.receive(parseUuidParam(req.params).id, body, req.user?.userId),
+      await purchaseOrdersService.receive(parseUuidParam(req.params).id, body, req.user.userId),
     );
   } catch (err) {
     next(err);

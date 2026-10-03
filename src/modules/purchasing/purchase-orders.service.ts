@@ -29,6 +29,12 @@ const orderInclude = {
       role: true,
     },
   },
+  receivedByWebUser: {
+    select: {
+      id: true,
+      username: true,
+    },
+  },
   supplier: {
     select: {
       id: true,
@@ -181,6 +187,9 @@ export const purchaseOrdersService = {
           },
           createdByWebUser: {
             select: { id: true, username: true, role: true },
+          },
+          receivedByWebUser: {
+            select: { id: true, username: true },
           },
           supplier: { select: { id: true, name: true, nit: true, country: true } },
           _count: { select: { details: true } },
@@ -406,6 +415,8 @@ export const purchaseOrdersService = {
    * actualiza stock y costPrice con promedio ponderado.
    * La OC y todos sus productos se bloquean en orden determinista antes de
    * validar estado o calcular saldos.
+   * Registra el WebUser receptor en la OC y conserva `InventoryMovements` sin
+   * una columna nueva: el usuario se obtiene por `PurchaseOrderId`.
    *
    * @param id - UUID de la orden de compra.
    * @param input - Datos opcionales del documento de recepción.
@@ -501,6 +512,7 @@ export const purchaseOrdersService = {
           status: "RECIBIDA",
           receivedAt: new Date(),
           receivedById,
+          receivedByWebUserId: webUserId,
           supplierDocNumber:
             input.supplierDocNumber !== undefined && input.supplierDocNumber !== null
               ? input.supplierDocNumber

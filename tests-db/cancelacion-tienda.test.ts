@@ -148,14 +148,14 @@ describe("cancelación de pedidos de tienda con reposición", () => {
     }
   });
 
-  it("exige una nota nueva al cancelar un pago en verificación", { timeout: 30_000 }, async () => {
+  it("exige cancellationNote y conserva las notas previas al cancelar un pago en verificación", { timeout: 30_000 }, async () => {
     const fixture = await createFixture();
     try {
       const order = await checkout(fixture);
       await shopOrdersService.submitTransferReference(fixture.customerId, order.id, { reference: "TRF-NOTA" });
 
       await expect(shopOrdersService.updateAdmin(order.id, { status: "CANCELADA" }))
-        .rejects.toMatchObject({ statusCode: 400 });
+        .rejects.toMatchObject({ statusCode: 409 });
       const withoutNote = await prisma.$queryRaw<Array<{ status: string; returns: bigint }>>`
         SELECT "Status" AS status,
           (SELECT COUNT(*) FROM public."InventoryMovements" im
@@ -165,21 +165,20 @@ describe("cancelación de pedidos de tienda con reposición", () => {
       expect(Number(withoutNote[0].returns)).toBe(0);
 
       await shopOrdersService.updateAdmin(order.id, { adminNotes: "Nota previa" });
-      await expect(shopOrdersService.updateAdmin(order.id, {
-        status: "CANCELADA",
-        adminNotes: " Nota previa ",
-      })).rejects.toMatchObject({ statusCode: 400 });
 
       await shopOrdersService.updateAdmin(order.id, {
         status: "CANCELADA",
-        adminNotes: "Nota nueva de cancelación",
+        cancellationNote: "Nota nueva de cancelación",
       });
       const withNote = await prisma.$queryRaw<Array<{ status: string; adminNotes: string | null; returns: bigint }>>`
         SELECT "Status" AS status, "AdminNotes" AS "adminNotes",
           (SELECT COUNT(*) FROM public."InventoryMovements" im
            WHERE im."ShopOrderId" = so."id" AND im."MovementType" = 'ENTRADA_DEVOLUCION') AS returns
         FROM system."ShopOrders" so WHERE so."id" = ${order.id}::uuid`;
-      expect(withNote[0]).toMatchObject({ status: "CANCELADA", adminNotes: "Nota nueva de cancelación" });
+      expect(withNote[0]).toMatchObject({
+        status: "CANCELADA",
+        adminNotes: "Nota previa\nCancelación con pago en verificación: Nota nueva de cancelación",
+      });
       expect(Number(withNote[0].returns)).toBe(2);
     } finally {
       await deleteFixture(fixture);
