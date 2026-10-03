@@ -1,10 +1,16 @@
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import app from "../src/app.js";
 import { signAccessToken } from "../src/shared/jwt.js";
 
+const prismaMock = vi.hoisted(() => ({
+  webUser: { findUnique: vi.fn().mockResolvedValue({ isActive: true, role: "ADMIN", tokenVersion: 0 }) },
+}));
+
+vi.mock("../src/lib/prisma.js", () => ({ prisma: prismaMock }));
+
 describe("rutas de sesión", () => {
-  const token = signAccessToken({ userId: "550e8400-e29b-41d4-a716-446655440000", role: "ADMIN" });
+  const token = signAccessToken({ userId: "550e8400-e29b-41d4-a716-446655440000", role: "ADMIN", tv: 0 });
 
   it("permite renovar CSRF usando Bearer sin exigir CSRF", async () => {
     const response = await request(app)

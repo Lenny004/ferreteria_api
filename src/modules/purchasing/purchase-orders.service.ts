@@ -5,7 +5,9 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
-import { BadRequestError, NotFoundError } from "../../shared/errors.js";
+import { BadRequestError, ConflictError, NotFoundError, UnauthorizedError } from "../../shared/errors.js";
+import { lockProducts, lockPurchaseOrder } from "../../shared/stock-locks.js";
+import { runWithTransactionRetry } from "../../shared/transaction-retry.js";
 import { syncStockAlert } from "../inventory/inventory.service.js";
 
 export type PurchaseOrderStatus = "BORRADOR" | "CONFIRMADA" | "RECIBIDA" | "CANCELADA";
@@ -13,6 +15,25 @@ export type PurchaseOrderStatus = "BORRADOR" | "CONFIRMADA" | "RECIBIDA" | "CANC
 const DEFAULT_TAX_RATE = 0.13;
 
 const orderInclude = {
+  employee: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+    },
+  },
+  createdByWebUser: {
+    select: {
+      id: true,
+      username: true,
+    },
+  },
+  receivedByWebUser: {
+    select: {
+      id: true,
+      username: true,
+    },
+  },
   supplier: {
     select: {
       id: true,
@@ -45,6 +66,12 @@ type OrderLineInput = {
   unitCost: number;
   taxRate?: number;
   notes?: string | null;
+};
+
+/** Identidad administrativa que origina una orden de compra. */
+export type PurchaseOrderActor = {
+  userId: string;
+  role: string;
 };
 
 function toDecimal(value: number | string): Prisma.Decimal {
@@ -104,32 +131,29 @@ export function weightedAverageCost(
   return numerator.div(denominator).toDecimalPlaces(4);
 }
 
-async function resolveEmployeeId(
-  preferred?: string | null,
+/**
+ * Resuelve al empleado activo vinculado al usuario autenticado para atribuir una recepción.
+ * No usa un empleado sustituto: una recepción sin vínculo conserva `ReceivedById` nulo.
+ *
+ * @param tx - Cliente Prisma de la transacción activa.
+ * @param webUserId - UUID del usuario del panel que recibe la OC.
+ * @returns UUID del empleado activo vinculado o `null` si no existe vínculo válido.
+ */
+async function resolveReceivingEmployeeId(
+  tx: Prisma.TransactionClient,
   webUserId?: string,
-): Promise<string> {
-  if (preferred) {
-    const emp = await prisma.employee.findUnique({ where: { id: preferred } });
-    if (!emp || !emp.isActive) throw new BadRequestError("Empleado no válido");
-    return emp.id;
-  }
-  if (webUserId) {
-    const user = await prisma.webUser.findUnique({ where: { id: webUserId } });
-    if (user?.employeeId) {
-      const emp = await prisma.employee.findUnique({ where: { id: user.employeeId } });
-      if (emp?.isActive) return emp.id;
-    }
-  }
-  const fallback = await prisma.employee.findFirst({
-    where: { isActive: true },
-    orderBy: { createdAt: "asc" },
+): Promise<string | null> {
+  if (!webUserId) return null;
+  const user = await tx.webUser.findUnique({
+    where: { id: webUserId },
+    select: { employeeId: true },
   });
-  if (!fallback) {
-    throw new BadRequestError(
-      "No hay empleados activos para asociar la orden de compra. Crea un empleado o vincula WebUser.employeeId.",
-    );
-  }
-  return fallback.id;
+  if (!user?.employeeId) return null;
+  const employee = await tx.employee.findUnique({
+    where: { id: user.employeeId },
+    select: { id: true, isActive: true },
+  });
+  return employee?.isActive ? employee.id : null;
 }
 
 export const purchaseOrdersService = {
@@ -157,6 +181,15 @@ export const purchaseOrdersService = {
       prisma.purchaseOrder.findMany({
         where,
         include: {
+          employee: {
+            select: { id: true, firstName: true, lastName: true },
+          },
+          createdByWebUser: {
+            select: { id: true, username: true },
+          },
+          receivedByWebUser: {
+            select: { id: true, username: true },
+          },
           supplier: { select: { id: true, name: true, nit: true, country: true } },
           _count: { select: { details: true } },
         },
@@ -179,57 +212,83 @@ export const purchaseOrdersService = {
     return order;
   },
 
-  /** Crea OC en estado BORRADOR con totales calculados por línea (IVA 13% por defecto). */
+  /**
+   * Crea una OC en BORRADOR usando el empleado activo vinculado al WebUser cuando existe.
+   * ADMIN y OWNER pueden crearla sin empleado y siempre se registra el WebUser creador;
+   * la operación se ejecuta dentro de una transacción con reintento.
+   *
+   * @param input - Proveedor, líneas y datos administrativos validados.
+   * @param actor - Identidad y rol del usuario autenticado del panel.
+   * @throws {UnauthorizedError} Si falta la identidad autenticada.
+   * @throws {BadRequestError} Si un rol distinto de ADMIN/OWNER no tiene empleado activo vinculado.
+   * @returns Orden creada con proveedor, líneas y productos.
+   * @throws {NotFoundError} Si el proveedor no existe o está inactivo.
+   */
   async create(
     input: {
       supplierId: string;
-      employeeId?: string | null;
       supplierDocNumber?: string | null;
       supplierDocType?: string | null;
       notes?: string | null;
       expectedDate?: string | null;
       lines: OrderLineInput[];
     },
-    webUserId?: string,
+    actor: PurchaseOrderActor,
   ) {
+    if (!actor?.userId || !actor.role) throw new UnauthorizedError("No autorizado: falta el usuario autenticado");
     if (!input.lines?.length) throw new BadRequestError("La orden debe tener al menos una línea");
-
-    const supplier = await prisma.supplier.findUnique({ where: { id: input.supplierId } });
-    if (!supplier || !supplier.isActive) {
-      throw new NotFoundError("Proveedor no encontrado o inactivo");
-    }
-
-    const employeeId = await resolveEmployeeId(input.employeeId, webUserId);
     const { detailRows, subtotal, taxAmount, total } = computeOrderTotals(input.lines);
 
-    const productIds = [...new Set(detailRows.map((d) => d.productId))];
-    const products = await prisma.product.findMany({
-      where: { id: { in: productIds }, isActive: true },
-      select: { id: true },
-    });
-    if (products.length !== productIds.length) {
-      throw new BadRequestError("Uno o más productos no existen o están inactivos");
-    }
+    return runWithTransactionRetry(async (tx) => {
+      const supplier = await tx.supplier.findUnique({ where: { id: input.supplierId } });
+      if (!supplier || !supplier.isActive) {
+        throw new NotFoundError("Proveedor no encontrado o inactivo");
+      }
 
-    return prisma.purchaseOrder.create({
-      data: {
-        supplierId: input.supplierId,
-        employeeId,
-        supplierDocNumber: input.supplierDocNumber ?? undefined,
-        supplierDocType: input.supplierDocType ?? undefined,
-        notes: input.notes ?? undefined,
-        expectedDate: input.expectedDate ? new Date(input.expectedDate) : undefined,
-        status: "BORRADOR",
-        subtotal,
-        taxAmount,
-        total,
-        details: { create: detailRows },
-      },
-      include: orderInclude,
+      const employeeId = await resolveReceivingEmployeeId(tx, actor.userId);
+      if (!employeeId && !["ADMIN", "OWNER"].includes(actor.role)) {
+        throw new BadRequestError("Tu usuario no está vinculado a un empleado activo; vincúlalo para crear órdenes de compra");
+      }
+
+      const productIds = [...new Set(detailRows.map((d) => d.productId))];
+      const products = await tx.product.findMany({
+        where: { id: { in: productIds }, isActive: true },
+        select: { id: true },
+      });
+      if (products.length !== productIds.length) {
+        throw new BadRequestError("Uno o más productos no existen o están inactivos");
+      }
+
+      return tx.purchaseOrder.create({
+        data: {
+          supplierId: input.supplierId,
+          employeeId,
+          createdByWebUserId: actor.userId,
+          supplierDocNumber: input.supplierDocNumber ?? undefined,
+          supplierDocType: input.supplierDocType ?? undefined,
+          notes: input.notes ?? undefined,
+          expectedDate: input.expectedDate ? new Date(input.expectedDate) : undefined,
+          status: "BORRADOR",
+          subtotal,
+          taxAmount,
+          total,
+          details: { create: detailRows },
+        },
+        include: orderInclude,
+      });
     });
   },
 
-  /** Actualiza OC solo en estado BORRADOR; puede reemplazar líneas y recalcular totales. */
+  /**
+   * Actualiza una OC dentro de una transacción bloqueada; puede reemplazar líneas y recalcular totales.
+   *
+   * @param id - UUID de la orden de compra.
+   * @param input - Campos validados y líneas opcionales de la OC.
+   * @returns Orden actualizada con proveedor, líneas y productos.
+   * @throws {NotFoundError} Si la OC o el proveedor no existen.
+   * @throws {ConflictError} Si la OC no está en BORRADOR.
+   * @throws {BadRequestError} Si las líneas no cumplen las reglas de cantidades y costos.
+   */
   async update(
     id: string,
     input: {
@@ -241,25 +300,22 @@ export const purchaseOrdersService = {
       lines?: OrderLineInput[];
     },
   ) {
-    const existing = await prisma.purchaseOrder.findUnique({
-      where: { id },
-      include: { details: true },
-    });
-    if (!existing) throw new NotFoundError("Orden de compra no encontrada");
-    if (existing.status !== "BORRADOR") {
-      throw new BadRequestError("Solo se pueden editar órdenes en estado BORRADOR");
-    }
-
-    if (input.supplierId) {
-      const supplier = await prisma.supplier.findUnique({ where: { id: input.supplierId } });
-      if (!supplier || !supplier.isActive) {
-        throw new NotFoundError("Proveedor no encontrado o inactivo");
+    return runWithTransactionRetry(async (tx) => {
+      await lockPurchaseOrder(tx, id);
+      const existing = await tx.purchaseOrder.findUnique({ where: { id } });
+      if (!existing) throw new NotFoundError("Orden de compra no encontrada");
+      if (existing.status !== "BORRADOR") {
+        throw new ConflictError("Solo se pueden editar órdenes en estado BORRADOR");
       }
-    }
 
-    const totals = input.lines ? computeOrderTotals(input.lines) : null;
+      if (input.supplierId) {
+        const supplier = await tx.supplier.findUnique({ where: { id: input.supplierId } });
+        if (!supplier || !supplier.isActive) {
+          throw new NotFoundError("Proveedor no encontrado o inactivo");
+        }
+      }
 
-    return prisma.$transaction(async (tx) => {
+      const totals = input.lines ? computeOrderTotals(input.lines) : null;
       if (totals) {
         await tx.purchaseOrderDetail.deleteMany({ where: { purchaseOrderId: id } });
         await tx.purchaseOrderDetail.createMany({
@@ -294,65 +350,104 @@ export const purchaseOrdersService = {
     });
   },
 
-  /** Pasa OC de BORRADOR a CONFIRMADA. */
+  /**
+   * Pasa una OC de BORRADOR a CONFIRMADA bajo bloqueo pesimista.
+   *
+   * @param id - UUID de la orden de compra.
+   * @returns Orden confirmada con sus relaciones.
+   * @throws {NotFoundError} Si la OC no existe.
+   * @throws {ConflictError} Si la OC no está en BORRADOR.
+   * @throws {BadRequestError} Si la OC no tiene líneas.
+   */
   async confirm(id: string) {
-    const order = await prisma.purchaseOrder.findUnique({
-      where: { id },
-      include: { details: true },
-    });
-    if (!order) throw new NotFoundError("Orden de compra no encontrada");
-    if (order.status !== "BORRADOR") {
-      throw new BadRequestError("Solo se pueden confirmar órdenes en BORRADOR");
-    }
-    if (!order.details.length) {
-      throw new BadRequestError("La orden no tiene líneas");
-    }
-    return prisma.purchaseOrder.update({
-      where: { id },
-      data: { status: "CONFIRMADA", updatedAt: new Date() },
-      include: orderInclude,
+    return runWithTransactionRetry(async (tx) => {
+      await lockPurchaseOrder(tx, id);
+      const order = await tx.purchaseOrder.findUnique({
+        where: { id },
+        include: { details: true },
+      });
+      if (!order) throw new NotFoundError("Orden de compra no encontrada");
+      if (order.status !== "BORRADOR") {
+        throw new ConflictError("Solo se pueden confirmar órdenes en BORRADOR");
+      }
+      if (!order.details.length) {
+        throw new BadRequestError("La orden no tiene líneas");
+      }
+      return tx.purchaseOrder.update({
+        where: { id },
+        data: { status: "CONFIRMADA", updatedAt: new Date() },
+        include: orderInclude,
+      });
     });
   },
 
-  /** Cancela OC que no esté RECIBIDA. */
+  /**
+   * Cancela una OC que no esté RECIBIDA; repetir CANCELADA devuelve la misma OC.
+   *
+   * @param id - UUID de la orden de compra.
+   * @returns Orden cancelada o ya cancelada.
+   * @throws {NotFoundError} Si la OC no existe.
+   * @throws {ConflictError} Si la OC ya fue recibida.
+   */
   async cancel(id: string) {
-    const order = await prisma.purchaseOrder.findUnique({ where: { id } });
-    if (!order) throw new NotFoundError("Orden de compra no encontrada");
-    if (order.status === "RECIBIDA") {
-      throw new BadRequestError("No se puede cancelar una orden ya recibida");
-    }
-    if (order.status === "CANCELADA") return this.getById(id);
-    return prisma.purchaseOrder.update({
-      where: { id },
-      data: { status: "CANCELADA", updatedAt: new Date() },
-      include: orderInclude,
+    return runWithTransactionRetry(async (tx) => {
+      await lockPurchaseOrder(tx, id);
+      const order = await tx.purchaseOrder.findUnique({
+        where: { id },
+        include: orderInclude,
+      });
+      if (!order) throw new NotFoundError("Orden de compra no encontrada");
+      if (order.status === "RECIBIDA") {
+        throw new ConflictError("No se puede cancelar una orden ya recibida");
+      }
+      if (order.status === "CANCELADA") return order;
+      return tx.purchaseOrder.update({
+        where: { id },
+        data: { status: "CANCELADA", updatedAt: new Date() },
+        include: orderInclude,
+      });
     });
   },
 
   /**
    * Recibe OC CONFIRMADA (o BORRADOR): genera ENTRADA_COMPRA por línea,
    * actualiza stock y costPrice con promedio ponderado.
+   * La OC y todos sus productos se bloquean en orden determinista antes de
+   * validar estado o calcular saldos.
+   * Registra el WebUser receptor en la OC y conserva `InventoryMovements` sin
+   * una columna nueva: el usuario se obtiene por `PurchaseOrderId`.
+   *
+   * @param id - UUID de la orden de compra.
+   * @param input - Datos opcionales del documento de recepción.
+   * @param webUserId - Usuario web autenticado que recibe la OC (obligatorio); se guarda en
+   *   `ReceivedByWebUserId` y su empleado activo vinculado, si existe, atribuye el movimiento.
+   * @returns Orden recibida con sus detalles.
+   * @throws {UnauthorizedError} Si falta el usuario autenticado.
+   * @throws {ConflictError} Si la orden ya fue recibida o está cancelada.
+   * @throws {BadRequestError} Si la orden no tiene líneas o costos válidos.
+   * @throws {NotFoundError} Si la orden o un producto no existe.
    */
   async receive(
     id: string,
     input: {
       supplierDocNumber?: string | null;
       supplierDocType?: string | null;
-      receivedById?: string | null;
     } = {},
-    webUserId?: string,
+    webUserId: string,
   ) {
-    return prisma.$transaction(async (tx) => {
+    if (!webUserId) throw new UnauthorizedError("No autorizado: falta el usuario autenticado");
+    return runWithTransactionRetry(async (tx) => {
+      await lockPurchaseOrder(tx, id);
       const order = await tx.purchaseOrder.findUnique({
         where: { id },
         include: { details: true },
       });
       if (!order) throw new NotFoundError("Orden de compra no encontrada");
       if (order.status === "RECIBIDA") {
-        throw new BadRequestError("La orden ya fue recibida");
+        throw new ConflictError("La orden ya fue recibida");
       }
       if (order.status === "CANCELADA") {
-        throw new BadRequestError("No se puede recibir una orden cancelada");
+        throw new ConflictError("No se puede recibir una orden cancelada");
       }
       if (!order.details.length) {
         throw new BadRequestError("La orden no tiene líneas");
@@ -364,7 +459,9 @@ export const purchaseOrdersService = {
         }
       }
 
-      const receivedById = await resolveEmployeeId(input.receivedById ?? order.employeeId, webUserId);
+      await lockProducts(tx, order.details.map((detail) => detail.productId));
+
+      const receivedById = await resolveReceivingEmployeeId(tx, webUserId);
 
       for (const detail of order.details) {
         const product = await tx.product.findUnique({ where: { id: detail.productId } });
@@ -417,6 +514,7 @@ export const purchaseOrdersService = {
           status: "RECIBIDA",
           receivedAt: new Date(),
           receivedById,
+          receivedByWebUserId: webUserId,
           supplierDocNumber:
             input.supplierDocNumber !== undefined && input.supplierDocNumber !== null
               ? input.supplierDocNumber

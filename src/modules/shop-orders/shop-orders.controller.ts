@@ -8,6 +8,8 @@ import { jsonSuccess } from "../../shared/api-response.js";
 import { parseUuidParam } from "../../shared/validation.js";
 import { shopOrdersService } from "./shop-orders.service.js";
 
+const paymentStatusValues = ["PENDIENTE", "EN_VERIFICACION", "PAGADO", "REEMBOLSADO", "FALLIDO"] as const;
+
 const checkoutSchema = z
   .object({
     customerNotes: z.string().max(2000).nullable().optional(),
@@ -32,6 +34,7 @@ const adminListSchema = z.object({
   status: z
     .enum(["PENDIENTE", "CONFIRMADA", "LISTA_RETIRO", "ENTREGADA", "CANCELADA"])
     .optional(),
+  paymentStatus: z.enum(paymentStatusValues).optional(),
   q: z.string().optional(),
   take: z.coerce.number().int().positive().max(200).optional(),
   skip: z.coerce.number().int().nonnegative().optional(),
@@ -42,7 +45,13 @@ const adminUpdateSchema = z.object({
     .enum(["PENDIENTE", "CONFIRMADA", "LISTA_RETIRO", "ENTREGADA", "CANCELADA"])
     .optional(),
   adminNotes: z.string().max(2000).nullable().optional(),
+  cancellationNote: z.string().trim().min(1).max(300).optional(),
 });
+
+const transferReferenceSchema = z.object({
+  reference: z.string().trim().min(3).max(100),
+  notes: z.string().trim().max(300).optional(),
+}).strict();
 
 /** POST `/checkout` — convierte carrito en pedido (cliente SHOP). */
 export async function checkout(req: Request, res: Response, next: NextFunction) {
@@ -88,6 +97,15 @@ export async function listAdmin(req: Request, res: Response, next: NextFunction)
   }
 }
 
+/** GET `/:id` — detalle de pedido para el panel administrativo. */
+export async function getAdmin(req: Request, res: Response, next: NextFunction) {
+  try {
+    jsonSuccess(res, await shopOrdersService.getAdmin(parseUuidParam(req.params).id));
+  } catch (err) {
+    next(err);
+  }
+}
+
 /** PATCH `/:id` — actualiza estado o notas (admin). */
 export async function updateAdmin(req: Request, res: Response, next: NextFunction) {
   try {
@@ -96,6 +114,22 @@ export async function updateAdmin(req: Request, res: Response, next: NextFunctio
       await shopOrdersService.updateAdmin(
         parseUuidParam(req.params).id,
         adminUpdateSchema.parse(req.body),
+      ),
+    );
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** POST `/:id/transfer-reference` — registra una transferencia pendiente del cliente. */
+export async function submitTransferReference(req: Request, res: Response, next: NextFunction) {
+  try {
+    jsonSuccess(
+      res,
+      await shopOrdersService.submitTransferReference(
+        req.user!.userId,
+        parseUuidParam(req.params).id,
+        transferReferenceSchema.parse(req.body),
       ),
     );
   } catch (err) {

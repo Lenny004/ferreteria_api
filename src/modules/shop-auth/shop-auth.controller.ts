@@ -13,7 +13,7 @@ import {
   setAuthCookies,
   setCsrfCookie,
 } from "../../shared/cookies.js";
-import { verifyAccessToken } from "../../shared/jwt.js";
+import { signAccessToken, verifyAccessToken } from "../../shared/jwt.js";
 
 const registerSchema = z.object({
   email: z.string().email().max(150),
@@ -70,31 +70,45 @@ export async function login(req: Request, res: Response, next: NextFunction) {
 }
 
 /**
- * POST `/logout` — limpia la sesión de tienda incluso si el JWT ya caducó.
- * Cuando la cookie contiene un JWT vigente se exige CSRF para impedir que un sitio
- * externo fuerce el cierre de una sesión válida; una cookie inválida solo se limpia.
+ * POST `/logout` — invalida el JWT SHOP verificable y limpia siempre sus cookies.
+ * Un token inválido, ausente o caducado no revela información y no consulta la BD.
+ * Con la cookie `fer_shop_access` vigente se exige `X-CSRF-Token` (como antes de este cambio):
+ * el logout incrementa `tokenVersion` y un sitio externo no debe poder cerrar todas las sesiones.
+ * Con `Authorization: Bearer` no hay credencial ambiental y no se exige CSRF.
  */
-export function logout(req: Request, res: Response): void {
-  const accessToken = req.cookies?.fer_shop_access as string | undefined;
-  if (accessToken) {
-    try {
-      const decoded = verifyAccessToken(accessToken);
-      if (!isValidCsrfToken(
-        req.cookies?.fer_shop_csrf,
-        req.header("X-CSRF-Token"),
-        decoded.userId,
-        "shop",
-      )) {
-        res.status(403).json({ success: false, error: "CSRF_INVALID", message: "Token CSRF inválido" });
-        return;
+export async function logout(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const bearerToken = req.header("Authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+    const accessToken = bearerToken ?? (req.cookies?.fer_shop_access as string | undefined);
+    if (accessToken) {
+      let decoded: ReturnType<typeof verifyAccessToken> | undefined;
+      try {
+        decoded = verifyAccessToken(accessToken);
+      } catch {
+        // Permitir limpiar cookies de JWT caducado evita dejar sesiones de navegador atascadas.
       }
-    } catch {
-      // Permitir limpiar cookies de JWT caducado evita dejar sesiones de navegador atascadas.
+      if (decoded?.role === "SHOP" && typeof decoded.tv === "number") {
+        const currentSession = await shopAuthService.isCurrentSession(decoded.userId, decoded.tv);
+        if (currentSession) {
+          if (!bearerToken && !isValidCsrfToken(
+            req.cookies?.fer_shop_csrf,
+            req.header("X-CSRF-Token"),
+            decoded.userId,
+            "shop",
+          )) {
+            res.status(403).json({ success: false, error: "CSRF_INVALID", message: "Token CSRF inválido" });
+            return;
+          }
+          await shopAuthService.logout(decoded.userId, decoded.tv);
+        }
+      }
     }
-  }
 
-  clearAuthCookies(res, "shop");
-  jsonSuccess(res, { loggedOut: true });
+    clearAuthCookies(res, "shop");
+    jsonSuccess(res, { loggedOut: true });
+  } catch (err) {
+    next(err);
+  }
 }
 
 /** GET `/csrf` — rota CSRF sin cambiar el JWT vigente ni cerrar la sesión de tienda. */
@@ -135,14 +149,14 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
 export async function changePassword(req: Request, res: Response, next: NextFunction) {
   try {
     const body = changePasswordSchema.parse(req.body);
-    jsonSuccess(
-      res,
-      await shopAuthService.changePassword(
+    const result = await shopAuthService.changePassword(
         req.user!.userId,
         body.currentPassword,
         body.newPassword,
-      ),
-    );
+      );
+    const accessToken = signAccessToken({ userId: req.user!.userId, role: "SHOP", tv: result.tokenVersion });
+    const csrfToken = req.cookies?.fer_shop_access ? setAuthCookies(res, accessToken, "shop") : undefined;
+    jsonSuccess(res, { ...result, accessToken, ...(csrfToken ? { csrfToken } : {}) });
   } catch (err) {
     next(err);
   }

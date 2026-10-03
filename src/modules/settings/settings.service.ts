@@ -4,9 +4,13 @@
  */
 
 import { prisma } from "../../lib/prisma.js";
-import { NotFoundError } from "../../shared/errors.js";
+import { Prisma } from "@prisma/client";
+import { BadRequestError, NotFoundError } from "../../shared/errors.js";
+import { IVA_RATE_EL_SALVADOR } from "../../shared/tax.js";
 
 const LEGAL_KEYS = ["TermsOfService", "PrivacyPolicy", "BusinessName", "ContactEmail"] as const;
+const IVA_PERCENTAGE = IVA_RATE_EL_SALVADOR.mul(100);
+const READ_ONLY_IVA_MESSAGE = "IvaPercentage es de solo lectura: el IVA (13 %) se define en código junto con el POS (a verificar con contador)";
 
 export const settingsService = {
   /** Lista ajustes marcados como públicos (tienda y legal). */
@@ -43,11 +47,29 @@ export const settingsService = {
     });
   },
 
-  /** Crea o actualiza un ajuste por clave. */
+  /**
+   * Crea o actualiza un ajuste por clave; `IvaPercentage` permanece vinculado al IVA del código.
+   *
+   * @param key - Clave del ajuste.
+   * @param data - Valor y metadatos validados del ajuste.
+   * @returns Ajuste creado o actualizado.
+   * @throws {BadRequestError} Si se intenta cambiar `IvaPercentage` a un valor distinto de 13.
+   */
   async upsert(
     key: string,
     data: { value: string; description?: string | null; isPublic?: boolean },
   ) {
+    if (key === "IvaPercentage") {
+      let requestedValue: Prisma.Decimal;
+      try {
+        requestedValue = new Prisma.Decimal(data.value);
+      } catch {
+        throw new BadRequestError(READ_ONLY_IVA_MESSAGE);
+      }
+      if (!requestedValue.eq(IVA_PERCENTAGE)) {
+        throw new BadRequestError(READ_ONLY_IVA_MESSAGE);
+      }
+    }
     return prisma.setting.upsert({
       where: { key },
       create: {

@@ -285,7 +285,9 @@ model Supplier {
 model PurchaseOrder {
   id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   supplierId        String    @map("SupplierId") @db.Uuid
-  employeeId        String    @map("EmployeeId") @db.Uuid
+  employeeId        String?   @map("EmployeeId") @db.Uuid
+  createdByWebUserId String?   @map("CreatedByWebUserId") @db.Uuid
+  receivedByWebUserId String?  @map("ReceivedByWebUserId") @db.Uuid
   /// Número de documento del proveedor (factura/CCF recibido)
   supplierDocNumber String?   @map("SupplierDocNumber") @db.VarChar(50)
   /// Tipo de documento recibido: CCF, FAC, OTRO
@@ -302,13 +304,17 @@ model PurchaseOrder {
   createdAt         DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt         DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  employee           Employee              @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKPurchaseOrdersEmployee")
+  employee           Employee?             @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKPurchaseOrdersEmployee")
+  createdByWebUser   WebUser?              @relation("PurchaseOrderCreatedBy", fields: [createdByWebUserId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKPurchaseOrdersCreatedByWebUser")
+  receivedByWebUser  WebUser?              @relation("PurchaseOrderReceivedBy", fields: [receivedByWebUserId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKPurchaseOrdersReceivedByWebUser")
   supplier           Supplier              @relation(fields: [supplierId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "PurchaseOrders_SupplierId_fkey")
   details            PurchaseOrderDetail[]
   inventoryMovements InventoryMovement[]
 
   @@index([supplierId], map: "IdxPurchaseOrdersSupplier")
   @@index([status], map: "IdxPurchaseOrdersStatus")
+  @@index([createdByWebUserId], map: "IdxPurchaseOrdersCreatedByWebUser")
+  @@index([receivedByWebUserId], map: "IdxPurchaseOrdersReceivedByWebUser")
   @@map("PurchaseOrders")
   @@schema("purchasing")
 }
@@ -579,6 +585,7 @@ model InventoryMovement {
   stockAfter      Decimal  @map("StockAfter") @db.Decimal(12, 3)
   orderId         String?  @map("OrderId") @db.Uuid
   purchaseOrderId String?  @map("PurchaseOrderId") @db.Uuid
+  shopOrderId     String?  @map("ShopOrderId") @db.Uuid
   employeeId      String?  @map("EmployeeId") @db.Uuid
   reason          String?  @db.VarChar(300)
   createdAt       DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
@@ -587,6 +594,7 @@ model InventoryMovement {
   order         Order?         @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKInventoryMovementsOrder")
   product       Product        @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "InventoryMovements_ProductId_fkey")
   purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKInventoryMovementsPurchaseOrder")
+  shopOrder     ShopOrder?     @relation(fields: [shopOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKInventoryMovementsShopOrder")
 
   inventoryCountLine InventoryCountLine?
   returnDetails      ReturnDetail[]
@@ -595,6 +603,7 @@ model InventoryMovement {
   @@index([movementType], map: "IdxInvMovType")
   @@index([orderId], map: "IdxInvMovOrder")
   @@index([purchaseOrderId], map: "IdxInvMovPO")
+  @@index([shopOrderId], map: "IdxInvMovShopOrder")
   @@map("InventoryMovements")
   @@schema("public")
 }
@@ -1407,6 +1416,7 @@ model WebUser {
   role         String    @default("ADMIN") @map("Role") @db.VarChar(20)
   employeeId   String?   @map("EmployeeId") @db.Uuid
   isActive     Boolean   @default(true) @map("IsActive")
+  tokenVersion Int       @default(0) @map("TokenVersion")
   lastLoginAt  DateTime? @map("LastLoginAt") @db.Timestamptz
   createdAt    DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt    DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
@@ -1417,6 +1427,9 @@ model WebUser {
   inventoryCountsApplied   InventoryCount[]     @relation("InventoryCountAppliedBy")
   inventoryCountsCancelled InventoryCount[]     @relation("InventoryCountCancelledBy")
   inventoryCountLines      InventoryCountLine[] @relation("InventoryCountLineCountedBy")
+  shopPaymentsConfirmed    ShopPayment[]        @relation("ShopPaymentConfirmedBy")
+  purchaseOrdersCreated    PurchaseOrder[]     @relation("PurchaseOrderCreatedBy")
+  purchaseOrdersReceived   PurchaseOrder[]     @relation("PurchaseOrderReceivedBy")
 
   @@map("WebUsers")
   @@schema("system")
@@ -1430,6 +1443,7 @@ model ShopCustomer {
   fullName              String    @map("FullName") @db.VarChar(200)
   phone                 String?   @map("Phone") @db.VarChar(30)
   isActive              Boolean   @default(true) @map("IsActive")
+  tokenVersion          Int       @default(0) @map("TokenVersion")
   /// null = aún no completó el tour de primer uso en tienda
   onboardingCompletedAt DateTime? @map("OnboardingCompletedAt") @db.Timestamptz
   lastLoginAt           DateTime? @map("LastLoginAt") @db.Timestamptz
@@ -1476,7 +1490,7 @@ model ShopOrder {
   deliveryType    String   @default("RETIRO_TIENDA") @map("DeliveryType") @db.VarChar(20)
   /// Dirección de envío (texto libre; null si retiro en tienda)
   shippingAddress String?  @map("ShippingAddress") @db.VarChar(500)
-  /// PENDIENTE | PAGADO | REEMBOLSADO | FALLIDO
+  /// PENDIENTE | EN_VERIFICACION | PAGADO | REEMBOLSADO | FALLIDO
   paymentStatus   String   @default("PENDIENTE") @map("PaymentStatus") @db.VarChar(20)
   /// EFECTIVO_RETIRO | TRANSFERENCIA | TARJETA | CONTRA_ENTREGA
   paymentMethod   String?  @map("PaymentMethod") @db.VarChar(30)
@@ -1488,6 +1502,7 @@ model ShopOrder {
   shopCustomer ShopCustomer    @relation(fields: [shopCustomerId], references: [id])
   lines        ShopOrderLine[]
   payments     ShopPayment[]
+  inventoryMovements InventoryMovement[]
 
   @@index([shopCustomerId], map: "IdxShopOrdersCustomer")
   @@index([status], map: "IdxShopOrdersStatus")
@@ -1508,14 +1523,22 @@ model ShopPayment {
   status      String   @default("PENDIENTE") @map("Status") @db.VarChar(20)
   /// Referencia externa (transferencia, mock charge id, etc.)
   providerRef String?  @map("ProviderRef") @db.VarChar(100)
+  /// Referencia de transferencia enviada por el cliente, pendiente de verificación.
+  customerReference String? @map("CustomerReference") @db.VarChar(100)
+  /// Momento en que el cliente informó o reemplazó la referencia.
+  customerReferenceAt DateTime? @map("CustomerReferenceAt") @db.Timestamptz
   /// Detalle libre (últimos 4 dígitos simulados, banco, etc.)
   notes       String?  @map("Notes") @db.VarChar(300)
+  confirmedByWebUserId String?  @map("ConfirmedByWebUserId") @db.Uuid
+  confirmedAt DateTime? @map("ConfirmedAt") @db.Timestamptz
   createdAt   DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt   DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
 
   shopOrder ShopOrder @relation(fields: [shopOrderId], references: [id], onDelete: Cascade)
+  confirmedByWebUser WebUser? @relation("ShopPaymentConfirmedBy", fields: [confirmedByWebUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "ShopPayments_ConfirmedByWebUserId_fkey")
 
   @@index([shopOrderId], map: "IdxShopPaymentsOrder")
+  @@index([confirmedByWebUserId], map: "IdxShopPaymentsConfirmedByWebUser")
   @@map("ShopPayments")
   @@schema("system")
 }

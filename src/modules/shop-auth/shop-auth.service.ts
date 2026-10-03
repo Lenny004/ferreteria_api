@@ -28,6 +28,38 @@ function hashToken(token: string): string {
 }
 
 export const shopAuthService = {
+  /**
+   * Comprueba en modo lectura si una sesión de ShopCustomer sigue activa y
+   * coincide con la versión incluida en el JWT.
+   *
+   * @param customerId - UUID del cliente identificado por el JWT.
+   * @param tokenVersion - Versión incluida en el JWT validado.
+   * @returns `true` solo para una sesión existente, activa y vigente.
+   */
+  async isCurrentSession(customerId: string, tokenVersion: number): Promise<boolean> {
+    const customer = await prisma.shopCustomer.findUnique({
+      where: { id: customerId },
+      select: { isActive: true, tokenVersion: true },
+    });
+    return Boolean(customer?.isActive && customer.tokenVersion === tokenVersion);
+  },
+
+  /**
+   * Invalida atómicamente el token de sesión si su versión sigue vigente.
+   * La versión pertenece al cliente, por lo que cerrar sesión invalida todas sus sesiones activas por diseño.
+   *
+   * @param customerId - UUID del cliente identificado por el JWT.
+   * @param tokenVersion - Versión incluida en el JWT validado.
+   * @returns `true` si la versión fue incrementada; `false` si ya cambió.
+   */
+  async logout(customerId: string, tokenVersion: number): Promise<boolean> {
+    const result = await prisma.shopCustomer.updateMany({
+      where: { id: customerId, tokenVersion },
+      data: { tokenVersion: { increment: 1 }, updatedAt: new Date() },
+    });
+    return result.count === 1;
+  },
+
   /** Registra cliente y devuelve JWT de acceso. */
   async register(data: {
     email: string;
@@ -51,11 +83,12 @@ export const shopAuthService = {
         fullName: data.fullName.trim(),
         phone: data.phone?.trim() || null,
       },
-      select: shopCustomerSelect,
+      select: { ...shopCustomerSelect, tokenVersion: true },
     });
 
-    const accessToken = signAccessToken({ userId: customer.id, role: "SHOP" });
-    return { accessToken, customer };
+    const accessToken = signAccessToken({ userId: customer.id, role: "SHOP", tv: customer.tokenVersion ?? 0 });
+    const { tokenVersion: _tokenVersion, ...publicCustomer } = customer;
+    return { accessToken, customer: publicCustomer };
   },
 
   /** Valida credenciales y emite JWT; actualiza `lastLoginAt`. */
@@ -77,7 +110,7 @@ export const shopAuthService = {
       data: { lastLoginAt, updatedAt: lastLoginAt },
     });
 
-    const accessToken = signAccessToken({ userId: customer.id, role: "SHOP" });
+    const accessToken = signAccessToken({ userId: customer.id, role: "SHOP", tv: customer.tokenVersion ?? 0 });
     return {
       accessToken,
       customer: {
@@ -142,11 +175,12 @@ export const shopAuthService = {
       throw new BadRequestError("La nueva contraseña debe tener al menos 8 caracteres");
     }
     const passwordHash = await bcrypt.hash(newPassword, 10);
-    await prisma.shopCustomer.update({
+    const updatedCustomer = await prisma.shopCustomer.update({
       where: { id: customerId },
-      data: { passwordHash, updatedAt: new Date() },
+      data: { passwordHash, tokenVersion: { increment: 1 }, updatedAt: new Date() },
+      select: { tokenVersion: true },
     });
-    return { changed: true };
+    return { changed: true, tokenVersion: updatedCustomer.tokenVersion };
   },
 
   /**
@@ -222,7 +256,7 @@ export const shopAuthService = {
     await prisma.$transaction([
       prisma.shopCustomer.update({
         where: { id: record.userId },
-        data: { passwordHash, updatedAt: new Date() },
+        data: { passwordHash, tokenVersion: { increment: 1 }, updatedAt: new Date() },
       }),
       prisma.passwordResetToken.update({
         where: { id: record.id },

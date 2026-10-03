@@ -149,7 +149,7 @@ describe("umbral de alertas de stock", () => {
     prismaMock.purchaseOrder.findUnique.mockResolvedValue(order);
     prismaMock.product.findUnique.mockResolvedValue({ ...product, currentStock: new Prisma.Decimal("1") });
 
-    await purchaseOrdersService.receive("purchase-order-1");
+    await purchaseOrdersService.receive("purchase-order-1", {}, "b50e8400-e29b-41d4-a716-446655440000");
 
     expect(prismaMock.stockAlert.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ currentStock: minimum, minStock: minimum }),
