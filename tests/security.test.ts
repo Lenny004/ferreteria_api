@@ -7,7 +7,7 @@ describe("seguridad compartida", () => {
   const userId = "550e8400-e29b-41d4-a716-446655440000";
 
   it("firma y verifica JWT con rol", () => {
-    const token = signAccessToken({ userId, role: "ADMIN" });
+    const token = signAccessToken({ userId, role: "ADMIN", tv: 0 });
     expect(verifyAccessToken(token)).toMatchObject({ userId, role: "ADMIN" });
   });
 

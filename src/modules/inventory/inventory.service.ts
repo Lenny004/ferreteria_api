@@ -6,6 +6,8 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { BadRequestError, NotFoundError } from "../../shared/errors.js";
+import { lockProducts } from "../../shared/stock-locks.js";
+import { runWithTransactionRetry } from "../../shared/transaction-retry.js";
 import { movementDirection, movementMagnitude, signedMovementDelta } from "./movement-direction.js";
 
 /** Tipos que el admin puede registrar (SALIDA_VENTA/ENTRADA_DEVOLUCION los escribe la caja WPF). */
@@ -32,6 +34,28 @@ const movementInclude = {
 
 function toDecimal(value: number | string): Prisma.Decimal {
   return new Prisma.Decimal(value);
+}
+
+/**
+ * Resuelve el empleado vinculado al usuario web que origina el movimiento.
+ * La atribución es opcional: un usuario sin empleado vinculado conserva el
+ * movimiento con `employeeId = null`, sin inventar un responsable.
+ *
+ * @param webUserId - Usuario autenticado que solicita el movimiento.
+ * @returns UUID del empleado activo o `null`.
+ */
+async function resolveMovementEmployeeId(webUserId?: string): Promise<string | null> {
+  if (!webUserId) return null;
+  const user = await prisma.webUser.findUnique({
+    where: { id: webUserId },
+    select: { employeeId: true },
+  });
+  if (!user?.employeeId) return null;
+  const employee = await prisma.employee.findUnique({
+    where: { id: user.employeeId },
+    select: { id: true, isActive: true },
+  });
+  return employee?.isActive ? employee.id : null;
 }
 
 /**
@@ -246,6 +270,14 @@ export const inventoryService = {
    * Registra un movimiento manual (entrada compra o ajuste).
    * En entradas con `unitCost` explícito recalcula costo promedio ponderado:
    * `(stock×costo + qty×nuevo) / (stock+qty)`; si stock ≤ 0 → nuevo costo.
+   * El producto se bloquea antes de leer su saldo y la atribución se obtiene del
+   * WebUser autenticado; un usuario sin empleado vinculado deja `employeeId` nulo.
+   *
+   * @param input - Datos de movimiento validados por el controlador.
+   * @param webUserId - Usuario autenticado que origina la operación, si existe.
+   * @returns Movimiento creado con el saldo calculado bajo bloqueo.
+   * @throws {BadRequestError} Si el tipo, cantidad o saldo resultan inválidos.
+   * @throws {NotFoundError} Si el producto no existe o está inactivo.
    */
   async createMovement(input: {
     productId: string;
@@ -253,8 +285,7 @@ export const inventoryService = {
     quantity: number;
     unitCost?: number;
     reason?: string | null;
-    employeeId?: string | null;
-  }) {
+  }, webUserId?: string) {
     if (!ADMIN_MOVEMENT_TYPES.includes(input.movementType)) {
       throw new BadRequestError("Tipo de movimiento no permitido desde admin");
     }
@@ -262,7 +293,10 @@ export const inventoryService = {
       throw new BadRequestError("La cantidad debe ser mayor que cero");
     }
 
-    return prisma.$transaction(async (tx) => {
+    const employeeId = await resolveMovementEmployeeId(webUserId);
+
+    return runWithTransactionRetry(async (tx) => {
+      await lockProducts(tx, [input.productId]);
       const product = await tx.product.findUnique({ where: { id: input.productId } });
       if (!product || !product.isActive) {
         throw new NotFoundError("Producto no encontrado o inactivo");
@@ -310,7 +344,7 @@ export const inventoryService = {
           stockBefore,
           stockAfter,
           reason: input.reason ?? undefined,
-          employeeId: input.employeeId ?? undefined,
+          employeeId: employeeId ?? undefined,
         },
         include: movementInclude,
       });
@@ -376,6 +410,11 @@ export const inventoryService = {
   /**
    * Importación masiva de entradas/ajustes vía JSON (hasta 500 líneas).
    * Procesa línea a línea; errores no detienen el lote.
+   *
+   * @param lines - Líneas validadas de la importación.
+   * @param webUserId - Usuario autenticado que se atribuye a cada movimiento.
+   * @returns Resumen de líneas importadas y rechazadas.
+   * @throws {BadRequestError} Si el lote está vacío o supera 500 líneas.
    */
   async importMovements(
     lines: Array<{
@@ -385,6 +424,7 @@ export const inventoryService = {
       unitCost?: number;
       reason?: string;
     }>,
+    webUserId?: string,
   ) {
     if (!lines.length) throw new BadRequestError("No hay líneas para importar");
     if (lines.length > 500) throw new BadRequestError("Máximo 500 líneas por importación");
@@ -405,7 +445,7 @@ export const inventoryService = {
           quantity: line.quantity,
           unitCost: line.unitCost,
           reason: line.reason ?? "Importación masiva",
-        });
+        }, webUserId);
         results.push({ productCode: line.productCode, ok: true, movementId: movement.id });
       } catch (err) {
         results.push({

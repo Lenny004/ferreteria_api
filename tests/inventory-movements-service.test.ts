@@ -30,6 +30,7 @@ const baseMovement = {
 
 const prismaMock = {
   $transaction: vi.fn(async (callback: (tx: typeof prismaMock) => unknown) => callback(prismaMock)),
+  $queryRaw: vi.fn().mockResolvedValue([]),
   product: { findUnique: vi.fn(), update: vi.fn() },
   inventoryMovement: { create: vi.fn(), findMany: vi.fn(), count: vi.fn() },
   stockAlert: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },

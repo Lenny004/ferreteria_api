@@ -10,6 +10,7 @@ const user = {
   email: "admin@example.com",
   passwordHash,
   role: "ADMIN",
+  tokenVersion: 0,
   employeeId: null,
   isActive: true,
   lastLoginAt: null,
@@ -22,6 +23,11 @@ const prismaMock = {
     findFirst: vi.fn().mockResolvedValue(user),
     findUnique: vi.fn().mockResolvedValue(user),
     update: vi.fn().mockResolvedValue(user),
+    updateMany: vi.fn(async ({ where }: { where: { id: string; tokenVersion: number } }) => {
+      if (user.id !== where.id || user.tokenVersion !== where.tokenVersion) return { count: 0 };
+      user.tokenVersion += 1;
+      return { count: 1 };
+    }),
   },
   employee: {
     findMany: vi.fn().mockResolvedValue([]),
@@ -67,7 +73,7 @@ describe("contrato de autenticación del panel", () => {
     const token = login.body.data.accessToken;
     const csrf = await request(app).get("/api/v1/auth/csrf").set("Authorization", `Bearer ${token}`);
     const me = await request(app).get("/api/v1/auth/me").set("Authorization", `Bearer ${token}`);
-    const logout = await request(app).post("/api/v1/auth/logout");
+    const logout = await request(app).post("/api/v1/auth/logout").set("Authorization", `Bearer ${token}`);
     expect(csrf.status).toBe(200);
     expect(csrf.body.data.csrfToken).toMatch(/^[a-f0-9]{64}\.[a-f0-9]{64}$/);
     expect(me.status).toBe(200);
@@ -77,6 +83,54 @@ describe("contrato de autenticación del panel", () => {
       expect.stringContaining("fer_access=;"),
       expect.stringContaining("fer_csrf=;"),
     ]));
+    const invalidated = await request(app).get("/api/v1/auth/me").set("Authorization", `Bearer ${token}`);
+    expect(invalidated.status).toBe(401);
+  });
+
+  it("logout por cookie exige CSRF y, con CSRF válido, invalida el token vigente", async () => {
+    const { default: app } = await import("../src/app.js");
+    const login = await request(app).post("/api/v1/auth/login").send({ login: "admin", password: "password" });
+    const token = login.body.data.accessToken as string;
+    const csrfToken = login.body.data.csrfToken as string;
+    const before = prismaMock.webUser.updateMany.mock.calls.length;
+
+    const rejected = await request(app)
+      .post("/api/v1/auth/logout")
+      .set("Cookie", [`fer_access=${token}`, `fer_csrf=${csrfToken}`]);
+    expect(rejected.status).toBe(403);
+    expect(rejected.body.error).toBe("CSRF_INVALID");
+    expect(prismaMock.webUser.updateMany).toHaveBeenCalledTimes(before);
+    const stillValid = await request(app).get("/api/v1/auth/me").set("Authorization", `Bearer ${token}`);
+    expect(stillValid.status).toBe(200);
+
+    const accepted = await request(app)
+      .post("/api/v1/auth/logout")
+      .set("Cookie", [`fer_access=${token}`, `fer_csrf=${csrfToken}`])
+      .set("X-CSRF-Token", csrfToken);
+    expect(accepted.status).toBe(200);
+    expect(prismaMock.webUser.updateMany).toHaveBeenCalledTimes(before + 1);
+    const invalidated = await request(app).get("/api/v1/auth/me").set("Authorization", `Bearer ${token}`);
+    expect(invalidated.status).toBe(401);
+
+    const updatesBeforeObsolete = prismaMock.webUser.updateMany.mock.calls.length;
+    const obsoleteLogout = await request(app)
+      .post("/api/v1/auth/logout")
+      .set("Cookie", [`fer_access=${token}`]);
+    expect(obsoleteLogout.status).toBe(200);
+    expect(obsoleteLogout.body.data).toEqual({ loggedOut: true });
+    expect(prismaMock.webUser.updateMany).toHaveBeenCalledTimes(updatesBeforeObsolete);
+  });
+
+  it("logout sin token o con token inválido responde 200 sin tocar la BD", async () => {
+    const { default: app } = await import("../src/app.js");
+    const before = prismaMock.webUser.updateMany.mock.calls.length;
+    const withoutToken = await request(app).post("/api/v1/auth/logout");
+    const invalid = await request(app)
+      .post("/api/v1/auth/logout")
+      .set("Authorization", "Bearer token-invalido");
+    expect(withoutToken.status).toBe(200);
+    expect(invalid.status).toBe(200);
+    expect(prismaMock.webUser.updateMany).toHaveBeenCalledTimes(before);
   });
 
   it("ruta protegida por requireRole permite ADMIN y usa Prisma mockeado", async () => {

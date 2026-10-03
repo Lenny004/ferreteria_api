@@ -48,6 +48,12 @@ No se deben tocar `"StockBefore"`, `"StockAfter"` ni `Products."CurrentStock"`, 
 - `Squema.sql` **no se borra** del repo del POS. Impacto para el equipo del POS: cualquier cambio de esquema nuevo debe hacerse como migración Prisma en `ferreteria_backend` (y reflejarse en el modelo EF Core); `Squema.sql` queda como referencia histórica y debe actualizarse a partir de las migraciones si se sigue usando para instalaciones del POS aisladas.
 - **Prohibido:** `prisma db push`, `db push --force-reset`, `migrate reset` y `migrate dev` sobre cualquier base compartida o de producción. Los scripts `db:push*` se eliminaron de `package.json` por eso.
 
+## Seed seguro de QA y producción
+
+El seed separa referencias base de datos demo. `SEED_DEMO=true` está permitido solo fuera de producción; con `NODE_ENV=production` aborta. En producción se preservan los valores existentes de `Settings`, y no se restablecen contraseñas ni PINs. Las variables opcionales `SEED_ADMIN_USER`, `SEED_ADMIN_PASSWORD` (mínimo 12 caracteres) y `SEED_ADMIN_EMAIL` crean un administrador inicial únicamente cuando el usuario no existe. Si faltan, el seed informa que el admin inicial fue omitido sin imprimir secretos.
+
+Las credenciales demo nunca deben existir en producción. El pago de tarjeta de tienda permanece `PENDIENTE` hasta que se integre una pasarela real; el personal autorizado confirma manualmente el pago.
+
 ## Qué contiene `0_init`
 
 1. **Parte 1**, generada offline con el motor oficial:
@@ -157,6 +163,49 @@ WHERE o."CreatedAt"::date = CURRENT_DATE AND o."status" = 'COMPLETADA';
 ```
 
 Después: `npx prisma migrate resolve --rolled-back 3_pos_vkpistoday_zona_horaria`.
+
+## `6_qa_cancelacion_tienda` y `7_qa_movimientos_tienda_validacion`
+
+La migración 6 agrega únicamente cambios aditivos: permite `PurchaseOrders.EmployeeId` nulo,
+registra `CreatedByWebUserId` y agrega `InventoryMovements.ShopOrderId` con una FK `NOT VALID`.
+La migración 7 valida esa FK y crea el índice de `ShopOrderId` en un despliegue separado, porque
+`InventoryMovements` recibe escrituras del POS en cada venta. No se agregó un índice único parcial
+para pagos pendientes: primero debe diagnosticarse el estado real de los datos.
+
+Bloqueos aproximados de las sentencias de movimientos:
+
+- `ADD COLUMN "ShopOrderId"`: bloqueo breve de modificación de definición de la tabla.
+- `ADD CONSTRAINT ... NOT VALID`: bloqueo breve de modificación de definición; no escanea ni valida las filas existentes.
+- `VALIDATE CONSTRAINT`: `SHARE UPDATE EXCLUSIVE`; permite lecturas y escrituras normales mientras valida.
+- `CREATE INDEX "IdxInvMovShopOrder"`: `SHARE`; bloquea escrituras sobre `InventoryMovements` mientras se construye. No se usa `CONCURRENTLY` porque Prisma ejecuta la migración dentro de una transacción.
+
+Las migraciones **6 y 7 deben ejecutarse con el POS sin ventas**, fuera de horario y con respaldo previo. Esto es obligatorio porque 6 modifica la definición de tablas compartidas y 7 valida/indiza una tabla escrita por cada venta del POS.
+Para detectar pagos pendientes duplicados sin modificar datos:
+
+```sql
+SELECT "ShopOrderId", COUNT(*) AS pagos_pendientes
+FROM system."ShopPayments"
+WHERE "Status" = 'PENDIENTE'
+GROUP BY "ShopOrderId"
+HAVING COUNT(*) > 1;
+```
+
+La consulta operativa para detectar pedidos cancelados sin reingreso está en
+[docs/consultas/pedidos-cancelados-sin-reingreso.sql](consultas/pedidos-cancelados-sin-reingreso.sql).
+Es exclusivamente de lectura y no corrige datos.
+
+## `8_qa_notas_recepcion`
+
+Migración **aditiva**: agrega `purchasing."PurchaseOrders"."ReceivedByWebUserId"`, su FK sin acciones de borrado/actualización y el índice `IdxPurchaseOrdersReceivedByWebUser`. No agrega columnas a `public."InventoryMovements"`; el receptor se resuelve mediante `InventoryMovements.PurchaseOrderId` → `PurchaseOrders.ReceivedByWebUserId`.
+
+La migración comienza con `SET LOCAL lock_timeout = '5s'` para fallar rápido en vez de quedar en cola detrás de bloqueos del POS y bloquear a otros. Se usa `SET LOCAL` (no `SET`) porque Prisma ejecuta cada migración en su propia transacción: el timeout termina con esa transacción y no se filtra a migraciones posteriores del mismo `prisma migrate deploy`. Si falla por timeout, la migración queda marcada como fallida; reintentar con:
+
+```bash
+npx prisma migrate resolve --rolled-back 8_qa_notas_recepcion
+npx prisma migrate deploy
+```
+
+El reintento debe hacerse en una ventana con el POS inactivo y con respaldo previo.
 
 ## Pendientes conocidos
 

@@ -26,6 +26,38 @@ const webUserPublicSelect = {
 } as const;
 
 export const authService = {
+  /**
+   * Comprueba en modo lectura si una sesión de WebUser sigue activa y coincide
+   * con la versión incluida en el JWT.
+   *
+   * @param userId - UUID del WebUser identificado por el JWT.
+   * @param tokenVersion - Versión incluida en el JWT validado.
+   * @returns `true` solo para una sesión existente, activa y vigente.
+   */
+  async isCurrentSession(userId: string, tokenVersion: number): Promise<boolean> {
+    const user = await prisma.webUser.findUnique({
+      where: { id: userId },
+      select: { isActive: true, tokenVersion: true },
+    });
+    return Boolean(user?.isActive && user.tokenVersion === tokenVersion);
+  },
+
+  /**
+   * Invalida atómicamente el token de sesión si su versión sigue vigente.
+   * La versión pertenece al usuario, por lo que cerrar sesión invalida todas sus sesiones activas por diseño.
+   *
+   * @param userId - UUID del WebUser identificado por el JWT.
+   * @param tokenVersion - Versión incluida en el JWT validado.
+   * @returns `true` si la versión fue incrementada; `false` si ya cambió.
+   */
+  async logout(userId: string, tokenVersion: number): Promise<boolean> {
+    const result = await prisma.webUser.updateMany({
+      where: { id: userId, tokenVersion },
+      data: { tokenVersion: { increment: 1 }, updatedAt: new Date() },
+    });
+    return result.count === 1;
+  },
+
   /** Valida credenciales por email/username; emite JWT y actualiza `lastLoginAt`. */
   async login(login: string, password: string) {
     const user = await prisma.webUser.findFirst({
@@ -49,7 +81,7 @@ export const authService = {
       data: { lastLoginAt, updatedAt: lastLoginAt },
     });
 
-    const accessToken = signAccessToken({ userId: user.id, role: user.role });
+    const accessToken = signAccessToken({ userId: user.id, role: user.role, tv: user.tokenVersion ?? 0 });
 
     return {
       accessToken,
@@ -95,12 +127,13 @@ export const authService = {
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 10);
-    await prisma.webUser.update({
+    const updatedUser = await prisma.webUser.update({
       where: { id: userId },
-      data: { passwordHash, updatedAt: new Date() },
+      data: { passwordHash, tokenVersion: { increment: 1 }, updatedAt: new Date() },
+      select: { tokenVersion: true, role: true },
     });
 
-    return { changed: true };
+    return { changed: true, role: updatedUser.role, tokenVersion: updatedUser.tokenVersion };
   },
 
   /**
@@ -176,7 +209,7 @@ export const authService = {
     await prisma.$transaction([
       prisma.webUser.update({
         where: { id: record.userId },
-        data: { passwordHash, updatedAt: new Date() },
+        data: { passwordHash, tokenVersion: { increment: 1 }, updatedAt: new Date() },
       }),
       prisma.passwordResetToken.update({
         where: { id: record.id },

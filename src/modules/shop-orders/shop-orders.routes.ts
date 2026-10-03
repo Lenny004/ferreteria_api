@@ -12,15 +12,22 @@ import * as paymentsController from "../shop-payments/shop-payments.controller.j
 import * as controller from "./shop-orders.controller.js";
 
 const shopRouter = Router();
+shopRouter.post(
+  "/:id/pay",
+  authenticate,
+  requireRole("ADMIN", "OWNER"),
+  paymentsController.payOrder,
+);
 shopRouter.use(authenticateShop);
 shopRouter.post("/checkout", controller.checkout);
-shopRouter.post("/:id/pay", paymentsController.payOrder);
+shopRouter.post("/:id/transfer-reference", controller.submitTransferReference);
 shopRouter.get("/", controller.listMine);
 shopRouter.get("/:id", controller.getMine);
 
 const adminRouter = Router();
 adminRouter.use(authenticate);
 adminRouter.get("/", requireRole("ADMIN", "ACCOUNTANT", "OWNER"), controller.listAdmin);
+adminRouter.get("/:id", requireRole("ADMIN", "ACCOUNTANT", "OWNER"), controller.getAdmin);
 adminRouter.patch("/:id", requireRole("ADMIN", "OWNER"), controller.updateAdmin);
 
 export { shopRouter as shopOrdersRouter, adminRouter as adminShopOrdersRouter };
