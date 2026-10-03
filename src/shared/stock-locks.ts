@@ -81,3 +81,27 @@ export async function lockShopOrder(
       FOR UPDATE`,
   );
 }
+
+/**
+ * Bloquea un pedido únicamente si pertenece al cliente indicado.
+ * La consulta combina autorización y bloqueo para que un cliente no pueda
+ * esperar ni inferir información sobre pedidos ajenos.
+ *
+ * @param tx - Cliente Prisma de la transacción interactiva.
+ * @param orderId - UUID del pedido que se desea bloquear.
+ * @param shopCustomerId - UUID del cliente autenticado.
+ * @returns `true` si el pedido pertenece al cliente y quedó bloqueado; `false` en otro caso.
+ */
+export async function lockShopOrderForCustomer(
+  tx: Prisma.TransactionClient,
+  orderId: string,
+  shopCustomerId: string,
+): Promise<boolean> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>(
+    Prisma.sql`SELECT "id" FROM system."ShopOrders"
+      WHERE "id" = ${orderId}::uuid
+        AND "ShopCustomerId" = ${shopCustomerId}::uuid
+      FOR UPDATE`,
+  );
+  return rows.length > 0;
+}

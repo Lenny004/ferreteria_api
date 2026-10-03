@@ -111,6 +111,14 @@ describe("contrato de autenticación del panel", () => {
     expect(prismaMock.webUser.updateMany).toHaveBeenCalledTimes(before + 1);
     const invalidated = await request(app).get("/api/v1/auth/me").set("Authorization", `Bearer ${token}`);
     expect(invalidated.status).toBe(401);
+
+    const updatesBeforeObsolete = prismaMock.webUser.updateMany.mock.calls.length;
+    const obsoleteLogout = await request(app)
+      .post("/api/v1/auth/logout")
+      .set("Cookie", [`fer_access=${token}`]);
+    expect(obsoleteLogout.status).toBe(200);
+    expect(obsoleteLogout.body.data).toEqual({ loggedOut: true });
+    expect(prismaMock.webUser.updateMany).toHaveBeenCalledTimes(updatesBeforeObsolete);
   });
 
   it("logout sin token o con token inválido responde 200 sin tocar la BD", async () => {

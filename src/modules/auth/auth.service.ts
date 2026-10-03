@@ -27,6 +27,22 @@ const webUserPublicSelect = {
 
 export const authService = {
   /**
+   * Comprueba en modo lectura si una sesión de WebUser sigue activa y coincide
+   * con la versión incluida en el JWT.
+   *
+   * @param userId - UUID del WebUser identificado por el JWT.
+   * @param tokenVersion - Versión incluida en el JWT validado.
+   * @returns `true` solo para una sesión existente, activa y vigente.
+   */
+  async isCurrentSession(userId: string, tokenVersion: number): Promise<boolean> {
+    const user = await prisma.webUser.findUnique({
+      where: { id: userId },
+      select: { isActive: true, tokenVersion: true },
+    });
+    return Boolean(user?.isActive && user.tokenVersion === tokenVersion);
+  },
+
+  /**
    * Invalida atómicamente el token de sesión si su versión sigue vigente.
    * La versión pertenece al usuario, por lo que cerrar sesión invalida todas sus sesiones activas por diseño.
    *

@@ -12,6 +12,8 @@ const payOrderSchema = z.object({
   method: z.enum(["EFECTIVO_RETIRO", "TRANSFERENCIA", "TARJETA", "CONTRA_ENTREGA"]).optional(),
   providerRef: z.string().max(100).optional(),
   notes: z.string().max(300).optional(),
+  expectedCustomerReference: z.string().max(100).nullable().optional(),
+  expectedCustomerReferenceAt: z.string().datetime({ offset: true }).nullable().optional(),
 });
 
 /** POST `/:id/pay` — confirma manualmente un pago desde el panel autorizado. */

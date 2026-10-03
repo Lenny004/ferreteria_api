@@ -178,6 +178,7 @@ En la tienda, el pago con tarjeta es actualmente una intención pendiente: no se
 - `Supplier`, `PurchaseOrder`, `PurchaseOrderDetail`
 - Flujo OC: `BORRADOR` → `CONFIRMADA` → `RECIBIDA` → `CANCELADA`
 - Al recibir: actualiza stock y **costo promedio ponderado** en `Product.costPrice`
+- Al crear una OC, el servicio usa el empleado activo vinculado al usuario autenticado cuando existe. El empleado es opcional para `ADMIN` y `OWNER`; siempre se registra el WebUser creador en `CreatedByWebUserId`.
 </details>
 
 <details>
@@ -433,7 +434,7 @@ Alineado a `FERRETERIA_PLAN_FINALIZACION_APP.md`:
 ### Contrato de autenticación del panel
 
 - `POST /api/v1/auth/login`: devuelve `{ accessToken, user, csrfToken }` y emite `fer_access` (`httpOnly`, `Path=/api`, `SameSite` configurable, `Secure` en producción) y `fer_csrf` (legible por JS).
-- `POST /api/v1/auth/logout`: invalida el token admin vigente y elimina ambas cookies. Como `tokenVersion` es por usuario, cierra todas sus sesiones activas por diseño; sin token o con uno inválido/caducado también responde éxito. Si la sesión viaja en la cookie `fer_access` vigente exige `X-CSRF-Token` válido (403 `CSRF_INVALID` en otro caso); con `Authorization: Bearer` no se exige CSRF.
+- `POST /api/v1/auth/logout`: invalida el token admin vigente y elimina ambas cookies. Como `tokenVersion` es por usuario, cierra todas sus sesiones activas por diseño; sin token, con uno inválido/caducado o con un JWT firmado pero obsoleto/inactivo también responde `{ loggedOut: true }` y no escribe en BD. Solo una sesión vigente en la cookie `fer_access` exige `X-CSRF-Token` válido (403 `CSRF_INVALID` en otro caso); con `Authorization: Bearer` no se exige CSRF.
 - `GET /api/v1/auth/csrf`: rota el token CSRF (requiere sesión) y lo devuelve como `{ csrfToken }`.
 - El panel (otro origen) debe usar `credentials: 'include'` y enviar en `X-CSRF-Token` el `csrfToken` recibido en el cuerpo de login/csrf (guardado en memoria), porque `document.cookie` del panel no ve `fer_csrf` (cookie del dominio de la API con `Path=/api`).
 - `GET /api/v1/auth/me`: consulta la sesión autenticada.
@@ -444,20 +445,21 @@ Alineado a `FERRETERIA_PLAN_FINALIZACION_APP.md`:
 
 - `POST /api/v1/shop/auth/register` y `POST /api/v1/shop/auth/login`: devuelven `{ accessToken, customer, csrfToken }` y emiten únicamente `fer_shop_access` (`httpOnly`) y `fer_shop_csrf` (legible por JS).
 - Las cookies de tienda usan `Path=/api/v1/shop`, `SameSite` configurable, `Secure` en producción o cuando `COOKIE_SECURE=true`, `Domain` configurable y `Max-Age` igual a la expiración del JWT. No se leen ni sobrescriben `fer_access`/`fer_csrf`.
-- `POST /api/v1/shop/auth/logout`: invalida el token SHOP vigente y limpia solo cookies de tienda; devuelve `{ loggedOut: true }` incluso sin token o con uno inválido/caducado. Como `tokenVersion` es por cliente, cierra todas sus sesiones activas por diseño. Si `fer_shop_access` contiene un JWT vigente exige `X-CSRF-Token` válido; con Bearer no.
+- `POST /api/v1/shop/auth/logout`: invalida el token SHOP vigente y limpia solo cookies de tienda; devuelve `{ loggedOut: true }` incluso sin token, con uno inválido/caducado o con un JWT firmado pero obsoleto/inactivo, sin escribir en BD en estos últimos casos. Como `tokenVersion` es por cliente, cierra todas sus sesiones activas por diseño. Solo `fer_shop_access` con una sesión vigente exige `X-CSRF-Token` válido; con Bearer no.
 - `GET /api/v1/shop/auth/csrf`: requiere sesión tienda por Bearer o `fer_shop_access`, rota `fer_shop_csrf` y devuelve `{ csrfToken }`.
 - `GET` autenticado por cookie no requiere CSRF. Las mutaciones autenticadas por cookie sí requieren `X-CSRF-Token` igual a `fer_shop_csrf`; Bearer no requiere CSRF. La firma HMAC usa un dominio distinto (`shop-csrf.`) al administrativo.
 
 ### Pagos de pedidos de tienda
 
 - `POST /api/v1/shop/orders/:id/pay` — **confirmar pago** desde una sesión del panel; solo `ADMIN` u `OWNER`. Si la sesión del panel usa cookie, también requiere `X-CSRF-Token` válido.
-- Body opcional: `{ "method": "EFECTIVO_RETIRO" | "TRANSFERENCIA" | "TARJETA" | "CONTRA_ENTREGA", "providerRef": "...", "notes": "..." }`.
+- Body opcional: `{ "method": "EFECTIVO_RETIRO" | "TRANSFERENCIA" | "TARJETA" | "CONTRA_ENTREGA", "providerRef": "...", "notes": "...", "expectedCustomerReference": "..." | null, "expectedCustomerReferenceAt": "2026-01-01T12:00:00.000Z" | null }`. Para confirmar una referencia que el cliente envió, el panel debe reenviar ambos campos que leyó; si cambiaron, responde `409` y el pedido permanece `EN_VERIFICACION`.
 - Respuestas relevantes: `403` si el rol no está autorizado o falla CSRF, `404` si el pedido no existe y `409` si ya está pagado o cancelado.
 - La integración con una pasarela real está pendiente; el checkout con tarjeta queda `PENDIENTE` y el personal confirma manualmente el pago.
 
 - `POST /api/v1/shop/orders/:id/transfer-reference` — el dueño del pedido registra o reemplaza `{ "reference": "...", "notes": "..." }` cuando el método es `TRANSFERENCIA`, el pedido no está cancelado y el pago está `PENDIENTE` o `EN_VERIFICACION`.
 - La referencia queda en el pago pendiente como `CustomerReference`/`CustomerReferenceAt`, el pedido pasa a `EN_VERIFICACION` y nunca se marca `PAGADO` ni `COMPLETADO` desde la tienda. La confirmación final la hace el personal desde el panel en **Pedidos de tienda**; si no envía `providerRef`, se usa la referencia del cliente.
 - `GET /api/v1/shop-orders/:id` — detalle del panel para `ADMIN`, `ACCOUNTANT` u `OWNER`; el listado administrativo también admite `paymentStatus`.
+- Al cancelar un pedido con `paymentStatus = EN_VERIFICACION`, el personal debe enviar una nota administrativa nueva y no vacía; sin ella la API responde `400` y no repone inventario.
 
 Tras desplegar esta versión, los tokens emitidos antes de incluir el claim `tv` se rechazan. Todos los usuarios deben iniciar sesión nuevamente una vez.
 

@@ -5,7 +5,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
-import { BadRequestError, ConflictError, NotFoundError } from "../../shared/errors.js";
+import { BadRequestError, ConflictError, NotFoundError, UnauthorizedError } from "../../shared/errors.js";
 import { lockProducts, lockPurchaseOrder } from "../../shared/stock-locks.js";
 import { runWithTransactionRetry } from "../../shared/transaction-retry.js";
 import { syncStockAlert } from "../inventory/inventory.service.js";
@@ -15,6 +15,20 @@ export type PurchaseOrderStatus = "BORRADOR" | "CONFIRMADA" | "RECIBIDA" | "CANC
 const DEFAULT_TAX_RATE = 0.13;
 
 const orderInclude = {
+  employee: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+    },
+  },
+  createdByWebUser: {
+    select: {
+      id: true,
+      username: true,
+      role: true,
+    },
+  },
   supplier: {
     select: {
       id: true,
@@ -47,6 +61,12 @@ type OrderLineInput = {
   unitCost: number;
   taxRate?: number;
   notes?: string | null;
+};
+
+/** Identidad administrativa que origina una orden de compra. */
+export type PurchaseOrderActor = {
+  userId: string;
+  role: string;
 };
 
 function toDecimal(value: number | string): Prisma.Decimal {
@@ -106,34 +126,6 @@ export function weightedAverageCost(
   return numerator.div(denominator).toDecimalPlaces(4);
 }
 
-async function resolveEmployeeId(
-  preferred?: string | null,
-  webUserId?: string,
-): Promise<string> {
-  if (preferred) {
-    const emp = await prisma.employee.findUnique({ where: { id: preferred } });
-    if (!emp || !emp.isActive) throw new BadRequestError("Empleado no válido");
-    return emp.id;
-  }
-  if (webUserId) {
-    const user = await prisma.webUser.findUnique({ where: { id: webUserId } });
-    if (user?.employeeId) {
-      const emp = await prisma.employee.findUnique({ where: { id: user.employeeId } });
-      if (emp?.isActive) return emp.id;
-    }
-  }
-  const fallback = await prisma.employee.findFirst({
-    where: { isActive: true },
-    orderBy: { createdAt: "asc" },
-  });
-  if (!fallback) {
-    throw new BadRequestError(
-      "No hay empleados activos para asociar la orden de compra. Crea un empleado o vincula WebUser.employeeId.",
-    );
-  }
-  return fallback.id;
-}
-
 /**
  * Resuelve al empleado activo vinculado al usuario autenticado para atribuir una recepción.
  * No usa un empleado sustituto: una recepción sin vínculo conserva `ReceivedById` nulo.
@@ -184,6 +176,12 @@ export const purchaseOrdersService = {
       prisma.purchaseOrder.findMany({
         where,
         include: {
+          employee: {
+            select: { id: true, firstName: true, lastName: true },
+          },
+          createdByWebUser: {
+            select: { id: true, username: true, role: true },
+          },
           supplier: { select: { id: true, name: true, nit: true, country: true } },
           _count: { select: { details: true } },
         },
@@ -206,53 +204,70 @@ export const purchaseOrdersService = {
     return order;
   },
 
-  /** Crea OC en estado BORRADOR con totales calculados por línea (IVA 13% por defecto). */
+  /**
+   * Crea una OC en BORRADOR usando el empleado activo vinculado al WebUser cuando existe.
+   * ADMIN y OWNER pueden crearla sin empleado y siempre se registra el WebUser creador;
+   * la operación se ejecuta dentro de una transacción con reintento.
+   *
+   * @param input - Proveedor, líneas y datos administrativos validados.
+   * @param actor - Identidad y rol del usuario autenticado del panel.
+   * @throws {UnauthorizedError} Si falta la identidad autenticada.
+   * @throws {BadRequestError} Si un rol distinto de ADMIN/OWNER no tiene empleado activo vinculado.
+   * @returns Orden creada con proveedor, líneas y productos.
+   * @throws {NotFoundError} Si el proveedor no existe o está inactivo.
+   */
   async create(
     input: {
       supplierId: string;
-      employeeId?: string | null;
       supplierDocNumber?: string | null;
       supplierDocType?: string | null;
       notes?: string | null;
       expectedDate?: string | null;
       lines: OrderLineInput[];
     },
-    webUserId?: string,
+    actor: PurchaseOrderActor,
   ) {
+    if (!actor?.userId || !actor.role) throw new UnauthorizedError("No autorizado: falta el usuario autenticado");
     if (!input.lines?.length) throw new BadRequestError("La orden debe tener al menos una línea");
-
-    const supplier = await prisma.supplier.findUnique({ where: { id: input.supplierId } });
-    if (!supplier || !supplier.isActive) {
-      throw new NotFoundError("Proveedor no encontrado o inactivo");
-    }
-
-    const employeeId = await resolveEmployeeId(input.employeeId, webUserId);
     const { detailRows, subtotal, taxAmount, total } = computeOrderTotals(input.lines);
 
-    const productIds = [...new Set(detailRows.map((d) => d.productId))];
-    const products = await prisma.product.findMany({
-      where: { id: { in: productIds }, isActive: true },
-      select: { id: true },
-    });
-    if (products.length !== productIds.length) {
-      throw new BadRequestError("Uno o más productos no existen o están inactivos");
-    }
+    return runWithTransactionRetry(async (tx) => {
+      const supplier = await tx.supplier.findUnique({ where: { id: input.supplierId } });
+      if (!supplier || !supplier.isActive) {
+        throw new NotFoundError("Proveedor no encontrado o inactivo");
+      }
 
-    return prisma.purchaseOrder.create({
-      data: {
-        supplierId: input.supplierId,
-        employeeId,
-        supplierDocNumber: input.supplierDocNumber ?? undefined,
-        supplierDocType: input.supplierDocType ?? undefined,
-        notes: input.notes ?? undefined,
-        expectedDate: input.expectedDate ? new Date(input.expectedDate) : undefined,
-        status: "BORRADOR",
-        subtotal,
-        taxAmount,
-        total,
-        details: { create: detailRows },
-      },
-      include: orderInclude,
+      const employeeId = await resolveReceivingEmployeeId(tx, actor.userId);
+      if (!employeeId && !["ADMIN", "OWNER"].includes(actor.role)) {
+        throw new BadRequestError("Tu usuario no está vinculado a un empleado activo; vincúlalo para crear órdenes de compra");
+      }
+
+      const productIds = [...new Set(detailRows.map((d) => d.productId))];
+      const products = await tx.product.findMany({
+        where: { id: { in: productIds }, isActive: true },
+        select: { id: true },
+      });
+      if (products.length !== productIds.length) {
+        throw new BadRequestError("Uno o más productos no existen o están inactivos");
+      }
+
+      return tx.purchaseOrder.create({
+        data: {
+          supplierId: input.supplierId,
+          employeeId,
+          createdByWebUserId: actor.userId,
+          supplierDocNumber: input.supplierDocNumber ?? undefined,
+          supplierDocType: input.supplierDocType ?? undefined,
+          notes: input.notes ?? undefined,
+          expectedDate: input.expectedDate ? new Date(input.expectedDate) : undefined,
+          status: "BORRADOR",
+          subtotal,
+          taxAmount,
+          total,
+          details: { create: detailRows },
+        },
+        include: orderInclude,
+      });
     });
   },
 

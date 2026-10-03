@@ -5,6 +5,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
+import { UnauthorizedError } from "../../shared/errors.js";
 import { parseUuidParam } from "../../shared/validation.js";
 import { purchaseOrdersService } from "./purchase-orders.service.js";
 
@@ -26,7 +27,6 @@ const listQuerySchema = z.object({
 
 const createSchema = z.object({
   supplierId: z.string().uuid(),
-  employeeId: z.string().uuid().nullable().optional(),
   supplierDocNumber: z.string().max(50).nullable().optional(),
   supplierDocType: z.enum(["CCF", "FAC", "OTRO"]).nullable().optional(),
   notes: z.string().nullable().optional(),
@@ -70,7 +70,8 @@ export async function getById(req: Request, res: Response, next: NextFunction) {
 export async function create(req: Request, res: Response, next: NextFunction) {
   try {
     const body = createSchema.parse(req.body);
-    jsonSuccess(res, await purchaseOrdersService.create(body, req.user?.userId), 201);
+    if (!req.user) throw new UnauthorizedError("No autorizado: falta el usuario autenticado");
+    jsonSuccess(res, await purchaseOrdersService.create(body, req.user), 201);
   } catch (err) {
     next(err);
   }

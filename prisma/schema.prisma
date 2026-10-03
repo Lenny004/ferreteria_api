@@ -285,7 +285,8 @@ model Supplier {
 model PurchaseOrder {
   id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   supplierId        String    @map("SupplierId") @db.Uuid
-  employeeId        String    @map("EmployeeId") @db.Uuid
+  employeeId        String?   @map("EmployeeId") @db.Uuid
+  createdByWebUserId String?   @map("CreatedByWebUserId") @db.Uuid
   /// Número de documento del proveedor (factura/CCF recibido)
   supplierDocNumber String?   @map("SupplierDocNumber") @db.VarChar(50)
   /// Tipo de documento recibido: CCF, FAC, OTRO
@@ -302,13 +303,15 @@ model PurchaseOrder {
   createdAt         DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt         DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
 
-  employee           Employee              @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKPurchaseOrdersEmployee")
+  employee           Employee?             @relation(fields: [employeeId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKPurchaseOrdersEmployee")
+  createdByWebUser   WebUser?              @relation("PurchaseOrderCreatedBy", fields: [createdByWebUserId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKPurchaseOrdersCreatedByWebUser")
   supplier           Supplier              @relation(fields: [supplierId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "PurchaseOrders_SupplierId_fkey")
   details            PurchaseOrderDetail[]
   inventoryMovements InventoryMovement[]
 
   @@index([supplierId], map: "IdxPurchaseOrdersSupplier")
   @@index([status], map: "IdxPurchaseOrdersStatus")
+  @@index([createdByWebUserId], map: "IdxPurchaseOrdersCreatedByWebUser")
   @@map("PurchaseOrders")
   @@schema("purchasing")
 }
@@ -579,6 +582,7 @@ model InventoryMovement {
   stockAfter      Decimal  @map("StockAfter") @db.Decimal(12, 3)
   orderId         String?  @map("OrderId") @db.Uuid
   purchaseOrderId String?  @map("PurchaseOrderId") @db.Uuid
+  shopOrderId     String?  @map("ShopOrderId") @db.Uuid
   employeeId      String?  @map("EmployeeId") @db.Uuid
   reason          String?  @db.VarChar(300)
   createdAt       DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
@@ -587,6 +591,7 @@ model InventoryMovement {
   order         Order?         @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKInventoryMovementsOrder")
   product       Product        @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "InventoryMovements_ProductId_fkey")
   purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKInventoryMovementsPurchaseOrder")
+  shopOrder     ShopOrder?     @relation(fields: [shopOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKInventoryMovementsShopOrder")
 
   inventoryCountLine InventoryCountLine?
   returnDetails      ReturnDetail[]
@@ -595,6 +600,7 @@ model InventoryMovement {
   @@index([movementType], map: "IdxInvMovType")
   @@index([orderId], map: "IdxInvMovOrder")
   @@index([purchaseOrderId], map: "IdxInvMovPO")
+  @@index([shopOrderId], map: "IdxInvMovShopOrder")
   @@map("InventoryMovements")
   @@schema("public")
 }
@@ -1419,6 +1425,7 @@ model WebUser {
   inventoryCountsCancelled InventoryCount[]     @relation("InventoryCountCancelledBy")
   inventoryCountLines      InventoryCountLine[] @relation("InventoryCountLineCountedBy")
   shopPaymentsConfirmed    ShopPayment[]        @relation("ShopPaymentConfirmedBy")
+  purchaseOrdersCreated    PurchaseOrder[]     @relation("PurchaseOrderCreatedBy")
 
   @@map("WebUsers")
   @@schema("system")
@@ -1491,6 +1498,7 @@ model ShopOrder {
   shopCustomer ShopCustomer    @relation(fields: [shopCustomerId], references: [id])
   lines        ShopOrderLine[]
   payments     ShopPayment[]
+  inventoryMovements InventoryMovement[]
 
   @@index([shopCustomerId], map: "IdxShopOrdersCustomer")
   @@index([status], map: "IdxShopOrdersStatus")

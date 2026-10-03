@@ -164,6 +164,36 @@ WHERE o."CreatedAt"::date = CURRENT_DATE AND o."status" = 'COMPLETADA';
 
 Después: `npx prisma migrate resolve --rolled-back 3_pos_vkpistoday_zona_horaria`.
 
+## `6_qa_cancelacion_tienda` y `7_qa_movimientos_tienda_validacion`
+
+La migración 6 agrega únicamente cambios aditivos: permite `PurchaseOrders.EmployeeId` nulo,
+registra `CreatedByWebUserId` y agrega `InventoryMovements.ShopOrderId` con una FK `NOT VALID`.
+La migración 7 valida esa FK y crea el índice de `ShopOrderId` en un despliegue separado, porque
+`InventoryMovements` recibe escrituras del POS en cada venta. No se agregó un índice único parcial
+para pagos pendientes: primero debe diagnosticarse el estado real de los datos.
+
+Bloqueos aproximados de las sentencias de movimientos:
+
+- `ADD COLUMN "ShopOrderId"`: bloqueo breve de modificación de definición de la tabla.
+- `ADD CONSTRAINT ... NOT VALID`: bloqueo breve de modificación de definición; no escanea ni valida las filas existentes.
+- `VALIDATE CONSTRAINT`: `SHARE UPDATE EXCLUSIVE`; permite lecturas y escrituras normales mientras valida.
+- `CREATE INDEX "IdxInvMovShopOrder"`: `SHARE`; bloquea escrituras sobre `InventoryMovements` mientras se construye. No se usa `CONCURRENTLY` porque Prisma ejecuta la migración dentro de una transacción.
+
+Ejecutar `prisma migrate deploy` con el POS sin ventas, preferiblemente fuera de horario y con respaldo previo.
+Para detectar pagos pendientes duplicados sin modificar datos:
+
+```sql
+SELECT "ShopOrderId", COUNT(*) AS pagos_pendientes
+FROM system."ShopPayments"
+WHERE "Status" = 'PENDIENTE'
+GROUP BY "ShopOrderId"
+HAVING COUNT(*) > 1;
+```
+
+La consulta operativa para detectar pedidos cancelados sin reingreso está en
+[docs/consultas/pedidos-cancelados-sin-reingreso.sql](consultas/pedidos-cancelados-sin-reingreso.sql).
+Es exclusivamente de lectura y no corrige datos.
+
 ## Pendientes conocidos
 
 - El seed de Prisma inserta ahora el catálogo de `SaleUnits` y la presentación base `UNIDAD` de los productos de forma idempotente, alineado con `Squema.sql`.

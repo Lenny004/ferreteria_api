@@ -58,11 +58,14 @@ export async function logout(req: Request, res: Response, next: NextFunction): P
         // El logout es deliberadamente idempotente frente a tokens inválidos o expirados.
       }
       if (decoded && decoded.role !== "SHOP" && typeof decoded.tv === "number") {
-        if (!bearerToken && !isValidCsrfToken(req.cookies?.fer_csrf, req.header("X-CSRF-Token"), decoded.userId)) {
-          res.status(403).json({ success: false, error: "CSRF_INVALID", message: "Token CSRF inválido" });
-          return;
+        const currentSession = await authService.isCurrentSession(decoded.userId, decoded.tv);
+        if (currentSession) {
+          if (!bearerToken && !isValidCsrfToken(req.cookies?.fer_csrf, req.header("X-CSRF-Token"), decoded.userId)) {
+            res.status(403).json({ success: false, error: "CSRF_INVALID", message: "Token CSRF inválido" });
+            return;
+          }
+          await authService.logout(decoded.userId, decoded.tv);
         }
-        await authService.logout(decoded.userId, decoded.tv);
       }
     }
     clearAuthCookies(res);

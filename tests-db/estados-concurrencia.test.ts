@@ -86,6 +86,8 @@ async function createShopRaceFixture(): Promise<ShopRaceFixture> {
 
 /** Elimina el pedido y las identidades usadas por una carrera de pagos. */
 async function deleteShopRaceFixture(fixture: ShopRaceFixture): Promise<void> {
+  await prisma.$executeRaw`DELETE FROM public."InventoryMovements" WHERE "ShopOrderId" = ${fixture.orderId}::uuid`;
+  await prisma.$executeRaw`DELETE FROM system."ShopPayments" WHERE "ShopOrderId" = ${fixture.orderId}::uuid`;
   await prisma.$executeRaw`DELETE FROM system."ShopOrders" WHERE "id" = ${fixture.orderId}::uuid`;
   await prisma.$executeRaw`DELETE FROM system."ShopCustomers" WHERE "id" = ${fixture.customerId}::uuid`;
   await prisma.$executeRaw`DELETE FROM system."WebUsers" WHERE "id" = ${fixture.webUserId}::uuid`;
@@ -113,10 +115,10 @@ async function createTransferFlowFixture(): Promise<TransferFlowFixture> {
 
 /** Elimina los datos del flujo de transferencia después de verificar sus efectos. */
 async function deleteTransferFlowFixture(fixture: TransferFlowFixture): Promise<void> {
+  await prisma.$executeRaw`DELETE FROM public."InventoryMovements" WHERE "ProductId" = ${fixture.productId}::uuid`;
   await prisma.$executeRaw`DELETE FROM system."ShopOrders" WHERE "ShopCustomerId" = ${fixture.customerId}::uuid`;
   await prisma.$executeRaw`DELETE FROM system."ShopCartItems" WHERE "ShopCustomerId" = ${fixture.customerId}::uuid`;
   await prisma.$executeRaw`DELETE FROM public."StockAlerts" WHERE "ProductId" = ${fixture.productId}::uuid`;
-  await prisma.$executeRaw`DELETE FROM public."InventoryMovements" WHERE "ProductId" = ${fixture.productId}::uuid`;
   await prisma.$executeRaw`DELETE FROM system."ShopCustomers" WHERE "id" = ${fixture.customerId}::uuid`;
   await prisma.$executeRaw`DELETE FROM system."WebUsers" WHERE "id" = ${fixture.webUserId}::uuid`;
   await prisma.$executeRaw`DELETE FROM public."Products" WHERE "id" = ${fixture.productId}::uuid`;
@@ -203,7 +205,17 @@ describe("transiciones de estado concurrentes", () => {
       );
       expect(verification.paymentStatus).toBe("EN_VERIFICACION");
 
-      const paid = await shopPaymentsService.payOrder(checkout.id, {}, fixture.webUserId);
+      const reference = await prisma.$queryRaw<Array<{
+        customerReference: string | null;
+        customerReferenceAt: Date | null;
+      }>>`
+        SELECT "CustomerReference" AS "customerReference", "CustomerReferenceAt" AS "customerReferenceAt"
+        FROM system."ShopPayments" WHERE "ShopOrderId" = ${checkout.id}::uuid
+        ORDER BY "CreatedAt" DESC LIMIT 1`;
+      const paid = await shopPaymentsService.payOrder(checkout.id, {
+        expectedCustomerReference: reference[0].customerReference,
+        expectedCustomerReferenceAt: reference[0].customerReferenceAt?.toISOString() ?? null,
+      }, fixture.webUserId);
       expect(paid.paymentStatus).toBe("PAGADO");
       const payment = await prisma.$queryRaw<Array<{
         providerRef: string | null;
