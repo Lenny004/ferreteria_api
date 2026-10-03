@@ -10,6 +10,7 @@ const user = {
   email: "admin@example.com",
   passwordHash,
   role: "ADMIN",
+  tokenVersion: 0,
   employeeId: null,
   isActive: true,
   lastLoginAt: null,

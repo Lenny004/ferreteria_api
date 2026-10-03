@@ -1407,6 +1407,7 @@ model WebUser {
   role         String    @default("ADMIN") @map("Role") @db.VarChar(20)
   employeeId   String?   @map("EmployeeId") @db.Uuid
   isActive     Boolean   @default(true) @map("IsActive")
+  tokenVersion Int       @default(0) @map("TokenVersion")
   lastLoginAt  DateTime? @map("LastLoginAt") @db.Timestamptz
   createdAt    DateTime  @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt    DateTime  @default(now()) @map("UpdatedAt") @db.Timestamptz
@@ -1417,6 +1418,7 @@ model WebUser {
   inventoryCountsApplied   InventoryCount[]     @relation("InventoryCountAppliedBy")
   inventoryCountsCancelled InventoryCount[]     @relation("InventoryCountCancelledBy")
   inventoryCountLines      InventoryCountLine[] @relation("InventoryCountLineCountedBy")
+  shopPaymentsConfirmed    ShopPayment[]        @relation("ShopPaymentConfirmedBy")
 
   @@map("WebUsers")
   @@schema("system")
@@ -1430,6 +1432,7 @@ model ShopCustomer {
   fullName              String    @map("FullName") @db.VarChar(200)
   phone                 String?   @map("Phone") @db.VarChar(30)
   isActive              Boolean   @default(true) @map("IsActive")
+  tokenVersion          Int       @default(0) @map("TokenVersion")
   /// null = aún no completó el tour de primer uso en tienda
   onboardingCompletedAt DateTime? @map("OnboardingCompletedAt") @db.Timestamptz
   lastLoginAt           DateTime? @map("LastLoginAt") @db.Timestamptz
@@ -1510,12 +1513,16 @@ model ShopPayment {
   providerRef String?  @map("ProviderRef") @db.VarChar(100)
   /// Detalle libre (últimos 4 dígitos simulados, banco, etc.)
   notes       String?  @map("Notes") @db.VarChar(300)
+  confirmedByWebUserId String?  @map("ConfirmedByWebUserId") @db.Uuid
+  confirmedAt DateTime? @map("ConfirmedAt") @db.Timestamptz
   createdAt   DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
   updatedAt   DateTime @default(now()) @map("UpdatedAt") @db.Timestamptz
 
   shopOrder ShopOrder @relation(fields: [shopOrderId], references: [id], onDelete: Cascade)
+  confirmedByWebUser WebUser? @relation("ShopPaymentConfirmedBy", fields: [confirmedByWebUserId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "ShopPayments_ConfirmedByWebUserId_fkey")
 
   @@index([shopOrderId], map: "IdxShopPaymentsOrder")
+  @@index([confirmedByWebUserId], map: "IdxShopPaymentsConfirmedByWebUser")
   @@map("ShopPayments")
   @@schema("system")
 }

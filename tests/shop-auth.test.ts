@@ -11,6 +11,7 @@ const customer = {
   fullName: "Cliente Tienda",
   phone: null,
   isActive: true,
+  tokenVersion: 0,
   onboardingCompletedAt: null,
   lastLoginAt: null,
   createdAt: new Date("2025-01-01T00:00:00Z"),
@@ -20,7 +21,7 @@ const customer = {
 const prismaMock = {
   shopCustomer: {
     findUnique: vi.fn().mockResolvedValue(customer),
-    update: vi.fn().mockResolvedValue(customer),
+    update: vi.fn().mockResolvedValue({ ...customer, tokenVersion: 1 }),
   },
 };
 
@@ -91,9 +92,10 @@ describe("sesión de tienda", () => {
       .send({ currentPassword: "password", newPassword: "password-nuevo" });
     expect(validCsrf.status).toBe(200);
 
+    prismaMock.shopCustomer.findUnique.mockResolvedValueOnce({ ...customer, tokenVersion: 1 });
     const bearer = await request(app)
       .post("/api/v1/shop/auth/change-password")
-      .set("Authorization", `Bearer ${login.body.data.accessToken}`)
+      .set("Authorization", `Bearer ${validCsrf.body.data.accessToken}`)
       .send({ currentPassword: "password", newPassword: "password-nuevo" });
     expect(bearer.status).toBe(200);
   });

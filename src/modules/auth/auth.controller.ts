@@ -7,6 +7,7 @@ import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
 import { authService } from "./auth.service.js";
 import { accessCookieMaxAge, clearAuthCookies, setAuthCookies, setCsrfCookie } from "../../shared/cookies.js";
+import { signAccessToken } from "../../shared/jwt.js";
 
 const loginSchema = z.object({
   login: z.string().min(1).optional(),
@@ -75,7 +76,13 @@ export async function changePassword(req: Request, res: Response, next: NextFunc
       body.currentPassword,
       body.newPassword,
     );
-    jsonSuccess(res, result);
+    const accessToken = signAccessToken({
+      userId: req.user!.userId,
+      role: result.role,
+      tv: result.tokenVersion,
+    });
+    const csrfToken = req.cookies?.fer_access ? setAuthCookies(res, accessToken) : undefined;
+    jsonSuccess(res, { ...result, accessToken, ...(csrfToken ? { csrfToken } : {}) });
   } catch (err) {
     next(err);
   }

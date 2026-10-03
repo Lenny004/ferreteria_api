@@ -48,6 +48,12 @@ No se deben tocar `"StockBefore"`, `"StockAfter"` ni `Products."CurrentStock"`, 
 - `Squema.sql` **no se borra** del repo del POS. Impacto para el equipo del POS: cualquier cambio de esquema nuevo debe hacerse como migración Prisma en `ferreteria_backend` (y reflejarse en el modelo EF Core); `Squema.sql` queda como referencia histórica y debe actualizarse a partir de las migraciones si se sigue usando para instalaciones del POS aisladas.
 - **Prohibido:** `prisma db push`, `db push --force-reset`, `migrate reset` y `migrate dev` sobre cualquier base compartida o de producción. Los scripts `db:push*` se eliminaron de `package.json` por eso.
 
+## Seed seguro de QA y producción
+
+El seed separa referencias base de datos demo. `SEED_DEMO=true` está permitido solo fuera de producción; con `NODE_ENV=production` aborta. En producción se preservan los valores existentes de `Settings`, y no se restablecen contraseñas ni PINs. Las variables opcionales `SEED_ADMIN_USER`, `SEED_ADMIN_PASSWORD` (mínimo 12 caracteres) y `SEED_ADMIN_EMAIL` crean un administrador inicial únicamente cuando el usuario no existe. Si faltan, el seed informa que el admin inicial fue omitido sin imprimir secretos.
+
+Las credenciales demo nunca deben existir en producción. El pago de tarjeta de tienda permanece `PENDIENTE` hasta que se integre una pasarela real; el personal autorizado confirma manualmente el pago.
+
 ## Qué contiene `0_init`
 
 1. **Parte 1**, generada offline con el motor oficial:

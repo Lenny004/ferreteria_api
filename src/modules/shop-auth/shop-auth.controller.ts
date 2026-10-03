@@ -14,6 +14,7 @@ import {
   setCsrfCookie,
 } from "../../shared/cookies.js";
 import { verifyAccessToken } from "../../shared/jwt.js";
+import { signAccessToken } from "../../shared/jwt.js";
 
 const registerSchema = z.object({
   email: z.string().email().max(150),
@@ -135,14 +136,14 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
 export async function changePassword(req: Request, res: Response, next: NextFunction) {
   try {
     const body = changePasswordSchema.parse(req.body);
-    jsonSuccess(
-      res,
-      await shopAuthService.changePassword(
+    const result = await shopAuthService.changePassword(
         req.user!.userId,
         body.currentPassword,
         body.newPassword,
-      ),
-    );
+      );
+    const accessToken = signAccessToken({ userId: req.user!.userId, role: "SHOP", tv: result.tokenVersion });
+    const csrfToken = req.cookies?.fer_shop_access ? setAuthCookies(res, accessToken, "shop") : undefined;
+    jsonSuccess(res, { ...result, accessToken, ...(csrfToken ? { csrfToken } : {}) });
   } catch (err) {
     next(err);
   }
