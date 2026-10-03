@@ -139,6 +139,25 @@ Después: `npx prisma migrate resolve --rolled-back 2_pos_devoluciones`. Solo co
 - Pruebas de constraints contra Postgres real: `npm run test:db` (requiere `DATABASE_URL` explícita a `localhost`/`127.0.0.1`; en CI corre contra el servicio Postgres ya migrado).
 - Próximo paso: implementar y mantener las ventas netas del panel/API según [docs/VENTAS_NETAS.md](VENTAS_NETAS.md).
 
+## `3_pos_vkpistoday_zona_horaria` (día de negocio de `VKpisToday`)
+
+Migración **aditiva**: solo `CREATE OR REPLACE VIEW sales."VKpisToday"`. Conserva las columnas (`TotalOrders` bigint, `TotalAmount` numeric, `AvgTicket` numeric), su orden y sus tipos, y cambia únicamente el corte del día: de `o."CreatedAt"::date = CURRENT_DATE` (zona de la sesión, UTC en el servidor) a `(o."CreatedAt" AT TIME ZONE 'America/El_Salvador')::date = (now() AT TIME ZONE 'America/El_Salvador')::date`. No toca tablas ni datos. Detalle en [ZONA_HORARIA.md](ZONA_HORARIA.md).
+
+- La zona es literal (una vista no recibe parámetros) y coincide con el valor por defecto de `BUSINESS_TZ`; cambiar la zona del negocio requiere otra migración.
+- **POS (`Squema.sql`)**: `docs/pos/3_pos_vkpistoday_zona_horaria_squema.sql` contiene la misma sentencia para reemplazar la definición de la sección VISTAS.
+
+### Rollback manual
+
+```sql
+CREATE OR REPLACE VIEW sales."VKpisToday" AS
+SELECT COUNT(*) AS "TotalOrders", COALESCE(SUM(o."total"), 0) AS "TotalAmount",
+       COALESCE(AVG(o."total"), 0) AS "AvgTicket"
+FROM sales."Orders" o
+WHERE o."CreatedAt"::date = CURRENT_DATE AND o."status" = 'COMPLETADA';
+```
+
+Después: `npx prisma migrate resolve --rolled-back 3_pos_vkpistoday_zona_horaria`.
+
 ## Pendientes conocidos
 
 - El seed de Prisma inserta ahora el catálogo de `SaleUnits` y la presentación base `UNIDAD` de los productos de forma idempotente, alineado con `Squema.sql`.
