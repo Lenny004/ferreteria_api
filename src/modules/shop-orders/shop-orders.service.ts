@@ -216,29 +216,20 @@ export const shopOrdersService = {
           },
         });
         products.set(product.id, { ...product, currentStock: stockAfter });
-        const movementData = {
-          productId: product.id,
-          movementType: "SALIDA_VENTA" as const,
-          quantity,
-          unitCost,
-          totalCost,
-          stockBefore,
-          stockAfter,
-          reason: `Pedido tienda ${created.id}`,
-        };
-        if (typeof tx.$executeRaw === "function") {
-          await tx.$executeRaw(
-            Prisma.sql`INSERT INTO public."InventoryMovements"
-              ("ProductId", "MovementType", "quantity", "UnitCost", "TotalCost",
-               "StockBefore", "StockAfter", "ShopOrderId", "reason")
-              VALUES (${product.id}::uuid, 'SALIDA_VENTA', ${quantity}, ${unitCost},
-                ${totalCost}, ${stockBefore}, ${stockAfter}, ${created.id}::uuid,
-                ${movementData.reason})`,
-          );
-        } else {
-          // El cliente generado de las pruebas aún puede no incluir la columna QA.
-          await tx.inventoryMovement.create({ data: movementData });
-        }
+        // `shopOrderId` vincula la salida al pedido para reponer exactamente lo vendido al cancelar.
+        await tx.inventoryMovement.create({
+          data: {
+            productId: product.id,
+            movementType: "SALIDA_VENTA",
+            quantity,
+            unitCost,
+            totalCost,
+            stockBefore,
+            stockAfter,
+            shopOrderId: created.id,
+            reason: `Pedido tienda ${created.id}`,
+          },
+        });
         await syncStockAlert(tx, product.id, stockAfter, new Prisma.Decimal(product.minStock));
       }
 
@@ -389,14 +380,19 @@ export const shopOrdersService = {
             where: { id: productId },
             data: { currentStock: stockAfter, updatedAt: new Date() },
           });
-          await tx.$executeRaw(
-            Prisma.sql`INSERT INTO public."InventoryMovements"
-              ("ProductId", "MovementType", "quantity", "UnitCost", "TotalCost",
-               "StockBefore", "StockAfter", "ShopOrderId", "reason")
-              VALUES (${productId}::uuid, 'ENTRADA_DEVOLUCION', ${pending.quantity},
-                ${pending.unitCost}, ${totalCost}, ${stockBefore}, ${stockAfter},
-                ${orderId}::uuid, ${`Cancelación pedido tienda ${orderId}`})`,
-          );
+          await tx.inventoryMovement.create({
+            data: {
+              productId,
+              movementType: "ENTRADA_DEVOLUCION",
+              quantity: pending.quantity,
+              unitCost: pending.unitCost,
+              totalCost,
+              stockBefore,
+              stockAfter,
+              shopOrderId: orderId,
+              reason: `Cancelación pedido tienda ${orderId}`,
+            },
+          });
           await syncStockAlert(tx, productId, stockAfter, new Prisma.Decimal(product.minStock));
         }
       }

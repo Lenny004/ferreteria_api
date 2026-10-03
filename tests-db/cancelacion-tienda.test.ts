@@ -83,10 +83,12 @@ describe("cancelación de pedidos de tienda con reposición", () => {
         ORDER BY "ProductId", "CreatedAt"`;
       expect(rows.filter((row) => row.movementType === "ENTRADA_DEVOLUCION")).toHaveLength(2);
       expect(rows.filter((row) => row.movementType === "ENTRADA_DEVOLUCION").every((row) => row.shopOrderId === order.id)).toBe(true);
-      expect(rows.filter((row) => row.movementType === "ENTRADA_DEVOLUCION").map((row) => [row.stockBefore, row.stockAfter])).toEqual([
-        ["3.000", "5.000"],
-        ["4.000", "7.000"],
-      ]);
+      // Se indexa por producto porque los UUID aleatorios no garantizan el orden de `ORDER BY "ProductId"`.
+      const returnsByProduct = new Map(rows
+        .filter((row) => row.movementType === "ENTRADA_DEVOLUCION")
+        .map((row) => [row.productId, [row.stockBefore, row.stockAfter]]));
+      expect(returnsByProduct.get(fixture.productIds[0])).toEqual(["3.000", "5.000"]);
+      expect(returnsByProduct.get(fixture.productIds[1])).toEqual(["4.000", "7.000"]);
     } finally {
       await deleteFixture(fixture);
     }

@@ -53,6 +53,7 @@ describe("movimiento de inventario del checkout de tienda", () => {
     const stockUpdate = prismaMock.product.update.mock.calls[0][0].data;
 
     expect(movement.movementType).toBe("SALIDA_VENTA");
+    expect(movement.shopOrderId).toBe("order-1");
     expect(movement.quantity).toEqual(new Prisma.Decimal("2"));
     expect(movement.totalCost).toEqual(new Prisma.Decimal("8.5"));
     expect(movement.stockBefore).toEqual(new Prisma.Decimal("3"));

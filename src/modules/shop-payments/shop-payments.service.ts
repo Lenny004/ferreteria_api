@@ -117,9 +117,7 @@ export const shopPaymentsService = {
       }
 
       // Sin `providerRef` explícito se conserva exactamente la referencia verificada.
-      const providerRef = data.providerRef !== undefined
-        ? data.providerRef.trim()
-        : verifiedReference;
+      const providerRef = data.providerRef?.trim() || verifiedReference || pendingPayment?.providerRef || null;
       const confirmedAt = new Date();
       if (pendingPayment) {
         await tx.shopPayment.update({
