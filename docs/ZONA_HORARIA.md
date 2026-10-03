@@ -33,4 +33,17 @@ Las alertas de stock no tienen cortes de periodo (solo estado abierta/resuelta),
 
 ## Vista POS `sales."VKpisToday"` (Ferretería Caja)
 
-La definición (`0_init`) filtra con `o."CreatedAt"::date = CURRENT_DATE`. Ambas expresiones usan la zona de la **sesión** de PostgreSQL. La caja no fija la zona en su conexión y el servidor usa la zona por defecto de la imagen (`Etc/UTC`), así que en la práctica la vista corta el día en **UTC**: después de las 6:00 p. m. hora local, el "hoy" de la vista ya es el día siguiente. No se modifica desde este repositorio (la BD del POS es de erp_ferreteria). Recomendación para Ferretería Caja: filtrar con `(o."CreatedAt" AT TIME ZONE 'America/El_Salvador')::date = (now() AT TIME ZONE 'America/El_Salvador')::date`, o fijar `timezone` de la base o del rol.
+Hasta `0_init`, la vista filtraba con `o."CreatedAt"::date = CURRENT_DATE`. Las dos expresiones usan la zona de la **sesión** de PostgreSQL; la caja no fija la zona en su conexión y el servidor usa la de la imagen (`Etc/UTC`), así que la vista cortaba el día en **UTC**: después de las 6:00 p. m. hora local, el "hoy" de la vista ya era el día siguiente.
+
+La migración `3_pos_vkpistoday_zona_horaria` la recrea (`CREATE OR REPLACE VIEW`, mismas columnas, orden y tipos) con el corte en hora local:
+
+```sql
+WHERE (o."CreatedAt" AT TIME ZONE 'America/El_Salvador')::date
+        = (now() AT TIME ZONE 'America/El_Salvador')::date
+  AND o."status" = 'COMPLETADA'
+```
+
+- `"CreatedAt"` es `timestamptz`: `AT TIME ZONE` devuelve la hora local de pared (`timestamp`) y `::date` toma su fecha. El resultado no depende de la zona de la sesión.
+- Una vista no recibe parámetros, así que la zona va **literal** y coincide con el valor por defecto de `BUSINESS_TZ`. Si la zona del negocio cambia, se necesita una migración nueva (y cambiar `Negocio:ZonaHoraria` del POS).
+- La vista sigue siendo de **ventas brutas** (ver [VENTAS_NETAS.md](VENTAS_NETAS.md)).
+- Copia para el `Squema.sql` del POS: `docs/pos/3_pos_vkpistoday_zona_horaria_squema.sql`. La prueba `tests-db/pos-vkpistoday-zona-horaria.test.ts` verifica que sea idéntica a la migración.
