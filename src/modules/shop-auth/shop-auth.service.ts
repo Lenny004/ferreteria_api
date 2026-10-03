@@ -29,6 +29,22 @@ function hashToken(token: string): string {
 
 export const shopAuthService = {
   /**
+   * Comprueba en modo lectura si una sesión de ShopCustomer sigue activa y
+   * coincide con la versión incluida en el JWT.
+   *
+   * @param customerId - UUID del cliente identificado por el JWT.
+   * @param tokenVersion - Versión incluida en el JWT validado.
+   * @returns `true` solo para una sesión existente, activa y vigente.
+   */
+  async isCurrentSession(customerId: string, tokenVersion: number): Promise<boolean> {
+    const customer = await prisma.shopCustomer.findUnique({
+      where: { id: customerId },
+      select: { isActive: true, tokenVersion: true },
+    });
+    return Boolean(customer?.isActive && customer.tokenVersion === tokenVersion);
+  },
+
+  /**
    * Invalida atómicamente el token de sesión si su versión sigue vigente.
    * La versión pertenece al cliente, por lo que cerrar sesión invalida todas sus sesiones activas por diseño.
    *

@@ -88,16 +88,19 @@ export async function logout(req: Request, res: Response, next: NextFunction): P
         // Permitir limpiar cookies de JWT caducado evita dejar sesiones de navegador atascadas.
       }
       if (decoded?.role === "SHOP" && typeof decoded.tv === "number") {
-        if (!bearerToken && !isValidCsrfToken(
-          req.cookies?.fer_shop_csrf,
-          req.header("X-CSRF-Token"),
-          decoded.userId,
-          "shop",
-        )) {
-          res.status(403).json({ success: false, error: "CSRF_INVALID", message: "Token CSRF inválido" });
-          return;
+        const currentSession = await shopAuthService.isCurrentSession(decoded.userId, decoded.tv);
+        if (currentSession) {
+          if (!bearerToken && !isValidCsrfToken(
+            req.cookies?.fer_shop_csrf,
+            req.header("X-CSRF-Token"),
+            decoded.userId,
+            "shop",
+          )) {
+            res.status(403).json({ success: false, error: "CSRF_INVALID", message: "Token CSRF inválido" });
+            return;
+          }
+          await shopAuthService.logout(decoded.userId, decoded.tv);
         }
-        await shopAuthService.logout(decoded.userId, decoded.tv);
       }
     }
 

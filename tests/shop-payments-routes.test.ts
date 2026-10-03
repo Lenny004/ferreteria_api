@@ -80,6 +80,20 @@ describe("confirmación manual de pagos de tienda", () => {
     }, ownerId);
   });
 
+  it("transporta la referencia y su fecha esperadas al servicio", async () => {
+    const expectedCustomerReferenceAt = "2026-01-15T12:00:00.000Z";
+    const response = await request(app)
+      .post(`/api/v1/shop/orders/${orderId}/pay`)
+      .set("Authorization", `Bearer ${signAccessToken({ userId: adminId, role: "ADMIN", tv: 0 })}`)
+      .send({ expectedCustomerReference: "REF-A", expectedCustomerReferenceAt });
+
+    expect(response.status).toBe(200);
+    expect(payOrderMock).toHaveBeenCalledWith(orderId, {
+      expectedCustomerReference: "REF-A",
+      expectedCustomerReferenceAt,
+    }, adminId);
+  });
+
   it("exige CSRF cuando el panel usa cookie y acepta el token CSRF válido", async () => {
     const token = signAccessToken({ userId: adminId, role: "ADMIN", tv: 0 });
     const csrf = createCsrfToken(adminId, "admin");

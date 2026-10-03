@@ -26,7 +26,6 @@ const listQuerySchema = z.object({
 
 const createSchema = z.object({
   supplierId: z.string().uuid(),
-  employeeId: z.string().uuid().nullable().optional(),
   supplierDocNumber: z.string().max(50).nullable().optional(),
   supplierDocType: z.enum(["CCF", "FAC", "OTRO"]).nullable().optional(),
   notes: z.string().nullable().optional(),

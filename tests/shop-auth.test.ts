@@ -149,6 +149,14 @@ describe("sesión de tienda", () => {
       .get("/api/v1/shop/auth/me")
       .set("Authorization", `Bearer ${access}`);
     expect(invalidated.status).toBe(401);
+
+    const updatesBeforeObsolete = prismaMock.shopCustomer.updateMany.mock.calls.length;
+    const obsoleteLogout = await request(app)
+      .post("/api/v1/shop/auth/logout")
+      .set("Cookie", [`fer_shop_access=${access}`]);
+    expect(obsoleteLogout.status).toBe(200);
+    expect(obsoleteLogout.body.data).toEqual({ loggedOut: true });
+    expect(prismaMock.shopCustomer.updateMany).toHaveBeenCalledTimes(updatesBeforeObsolete);
   });
 
   it("logout sin token o con token inválido no consulta la BD", async () => {

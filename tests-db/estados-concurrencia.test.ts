@@ -203,7 +203,17 @@ describe("transiciones de estado concurrentes", () => {
       );
       expect(verification.paymentStatus).toBe("EN_VERIFICACION");
 
-      const paid = await shopPaymentsService.payOrder(checkout.id, {}, fixture.webUserId);
+      const reference = await prisma.$queryRaw<Array<{
+        customerReference: string | null;
+        customerReferenceAt: Date | null;
+      }>>`
+        SELECT "CustomerReference" AS "customerReference", "CustomerReferenceAt" AS "customerReferenceAt"
+        FROM system."ShopPayments" WHERE "ShopOrderId" = ${checkout.id}::uuid
+        ORDER BY "CreatedAt" DESC LIMIT 1`;
+      const paid = await shopPaymentsService.payOrder(checkout.id, {
+        expectedCustomerReference: reference[0].customerReference,
+        expectedCustomerReferenceAt: reference[0].customerReferenceAt?.toISOString() ?? null,
+      }, fixture.webUserId);
       expect(paid.paymentStatus).toBe("PAGADO");
       const payment = await prisma.$queryRaw<Array<{
         providerRef: string | null;

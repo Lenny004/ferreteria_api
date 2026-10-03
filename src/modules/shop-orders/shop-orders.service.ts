@@ -13,9 +13,76 @@ import {
 import { movementMagnitude, signedMovementDelta } from "../inventory/movement-direction.js";
 import { syncStockAlert } from "../inventory/inventory.service.js";
 import { shopOrderClientInclude, shopOrderInclude } from "./shop-order.include.js";
-import { lockProducts, lockShopCustomer, lockShopOrder } from "../../shared/stock-locks.js";
+import {
+  lockProducts,
+  lockShopCustomer,
+  lockShopOrder,
+  lockShopOrderForCustomer,
+} from "../../shared/stock-locks.js";
 import { runWithTransactionRetry } from "../../shared/transaction-retry.js";
 import { calculateIva, roundMoney } from "../../shared/tax.js";
+
+type ShopOrderMovementRow = {
+  productId: string;
+  movementType: string;
+  quantity: string;
+  unitCost: string;
+};
+
+type RestockSummary = {
+  quantitySold: Prisma.Decimal;
+  quantityReturned: Prisma.Decimal;
+  weightedCost: Prisma.Decimal;
+};
+
+/**
+ * Calcula la cantidad aún no devuelta y el costo promedio de las salidas del pedido.
+ * Incluye movimientos antiguos sin `ShopOrderId` únicamente cuando conservan el
+ * motivo exacto usado por el checkout anterior.
+ *
+ * @param tx - Cliente Prisma de la transacción activa.
+ * @param orderId - UUID del pedido cancelado.
+ * @returns Resumen por producto para la reposición idempotente.
+ */
+async function calculatePendingRestock(
+  tx: Prisma.TransactionClient,
+  orderId: string,
+): Promise<Map<string, RestockSummary>> {
+  const rows = await tx.$queryRaw<ShopOrderMovementRow[]>(
+    Prisma.sql`SELECT "ProductId" AS "productId", "MovementType" AS "movementType",
+      "quantity"::text AS quantity, "UnitCost"::text AS "unitCost"
+      FROM public."InventoryMovements"
+      WHERE "MovementType" IN ('SALIDA_VENTA', 'ENTRADA_DEVOLUCION')
+        AND (
+          "ShopOrderId" = ${orderId}::uuid
+          OR (
+            "ShopOrderId" IS NULL
+            AND "MovementType" = 'SALIDA_VENTA'
+            AND "reason" = ${`Pedido tienda ${orderId}`}
+          )
+        )
+      ORDER BY "ProductId", "CreatedAt", "id"`,
+  );
+  const summary = new Map<string, RestockSummary>();
+  for (const row of rows) {
+    const current = summary.get(row.productId) ?? {
+      quantitySold: new Prisma.Decimal(0),
+      quantityReturned: new Prisma.Decimal(0),
+      weightedCost: new Prisma.Decimal(0),
+    };
+    const quantity = new Prisma.Decimal(row.quantity).abs();
+    if (row.movementType === "SALIDA_VENTA") {
+      current.quantitySold = current.quantitySold.add(quantity);
+      current.weightedCost = current.weightedCost.add(
+        quantity.mul(new Prisma.Decimal(row.unitCost).abs()),
+      );
+    } else {
+      current.quantityReturned = current.quantityReturned.add(quantity);
+    }
+    summary.set(row.productId, current);
+  }
+  return summary;
+}
 
 /** Opciones validadas para convertir el carrito de un cliente en pedido. */
 export type CheckoutOptions = {
@@ -149,18 +216,29 @@ export const shopOrdersService = {
           },
         });
         products.set(product.id, { ...product, currentStock: stockAfter });
-        await tx.inventoryMovement.create({
-          data: {
-            productId: product.id,
-            movementType: "SALIDA_VENTA",
-            quantity,
-            unitCost,
-            totalCost,
-            stockBefore,
-            stockAfter,
-            reason: `Pedido tienda ${created.id}`,
-          },
-        });
+        const movementData = {
+          productId: product.id,
+          movementType: "SALIDA_VENTA" as const,
+          quantity,
+          unitCost,
+          totalCost,
+          stockBefore,
+          stockAfter,
+          reason: `Pedido tienda ${created.id}`,
+        };
+        if (typeof tx.$executeRaw === "function") {
+          await tx.$executeRaw(
+            Prisma.sql`INSERT INTO public."InventoryMovements"
+              ("ProductId", "MovementType", "quantity", "UnitCost", "TotalCost",
+               "StockBefore", "StockAfter", "ShopOrderId", "reason")
+              VALUES (${product.id}::uuid, 'SALIDA_VENTA', ${quantity}, ${unitCost},
+                ${totalCost}, ${stockBefore}, ${stockAfter}, ${created.id}::uuid,
+                ${movementData.reason})`,
+          );
+        } else {
+          // El cliente generado de las pruebas aún puede no incluir la columna QA.
+          await tx.inventoryMovement.create({ data: movementData });
+        }
         await syncStockAlert(tx, product.id, stockAfter, new Prisma.Decimal(product.minStock));
       }
 
@@ -247,6 +325,10 @@ export const shopOrdersService = {
 
   /**
    * Actualiza estado o notas admin bajo bloqueo; no reactiva pedidos cancelados.
+   * Al cancelar, bloquea primero el pedido y después los productos. Checkout,
+   * recepción de OC y esta operación comparten el orden de productos entre sus
+   * fases de stock; `payOrder` solo bloquea el pedido, por lo que no introduce
+   * un ciclo de espera.
    *
    * @param orderId - UUID del pedido.
    * @param data - Estado y notas administrativas validadas.
@@ -272,6 +354,51 @@ export const shopOrdersService = {
       }
       if (data.status === "CANCELADA" && existing.paymentStatus === "PAGADO") {
         throw new ConflictError("Pedido pagado: no se puede cancelar sin un reembolso registrado");
+      }
+      if (data.status === "CANCELADA" && existing.status === "ENTREGADA") {
+        throw new ConflictError("Pedido entregado: registra una devolución en lugar de cancelar");
+      }
+
+      if (data.status === "CANCELADA" && existing.status !== "CANCELADA") {
+        const summary = await calculatePendingRestock(tx, orderId);
+        const pendingByProduct = new Map<string, { quantity: Prisma.Decimal; unitCost: Prisma.Decimal }>();
+        for (const [productId, item] of summary) {
+          const quantity = item.quantitySold.sub(item.quantityReturned);
+          if (quantity.greaterThan(0)) {
+            pendingByProduct.set(productId, {
+              quantity,
+              unitCost: item.quantitySold.greaterThan(0)
+                ? item.weightedCost.div(item.quantitySold).toDecimalPlaces(4)
+                : new Prisma.Decimal(0),
+            });
+          }
+        }
+
+        const productIds = [...pendingByProduct.keys()];
+        await lockProducts(tx, productIds);
+        const products = await tx.product.findMany({ where: { id: { in: productIds } } });
+        const productsById = new Map(products.map((product) => [product.id, product]));
+        for (const productId of productIds.sort()) {
+          const product = productsById.get(productId);
+          const pending = pendingByProduct.get(productId)!;
+          if (!product) throw new NotFoundError(`Producto ${productId} no encontrado`);
+          const stockBefore = new Prisma.Decimal(product.currentStock);
+          const stockAfter = stockBefore.add(pending.quantity);
+          const totalCost = pending.unitCost.mul(pending.quantity).toDecimalPlaces(4);
+          await tx.product.update({
+            where: { id: productId },
+            data: { currentStock: stockAfter, updatedAt: new Date() },
+          });
+          await tx.$executeRaw(
+            Prisma.sql`INSERT INTO public."InventoryMovements"
+              ("ProductId", "MovementType", "quantity", "UnitCost", "TotalCost",
+               "StockBefore", "StockAfter", "ShopOrderId", "reason")
+              VALUES (${productId}::uuid, 'ENTRADA_DEVOLUCION', ${pending.quantity},
+                ${pending.unitCost}, ${totalCost}, ${stockBefore}, ${stockAfter},
+                ${orderId}::uuid, ${`Cancelación pedido tienda ${orderId}`})`,
+          );
+          await syncStockAlert(tx, productId, stockAfter, new Prisma.Decimal(product.minStock));
+        }
       }
 
       return tx.shopOrder.update({
@@ -303,7 +430,8 @@ export const shopOrdersService = {
     data: { reference: string; notes?: string },
   ) {
     return runWithTransactionRetry(async (tx) => {
-      await lockShopOrder(tx, orderId);
+      const ownsOrder = await lockShopOrderForCustomer(tx, orderId, shopCustomerId);
+      if (!ownsOrder) throw new NotFoundError("Pedido no encontrado");
       const order = await tx.shopOrder.findFirst({
         where: { id: orderId, shopCustomerId },
         include: { payments: true },

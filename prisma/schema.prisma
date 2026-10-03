@@ -579,6 +579,7 @@ model InventoryMovement {
   stockAfter      Decimal  @map("StockAfter") @db.Decimal(12, 3)
   orderId         String?  @map("OrderId") @db.Uuid
   purchaseOrderId String?  @map("PurchaseOrderId") @db.Uuid
+  shopOrderId     String?  @map("ShopOrderId") @db.Uuid
   employeeId      String?  @map("EmployeeId") @db.Uuid
   reason          String?  @db.VarChar(300)
   createdAt       DateTime @default(now()) @map("CreatedAt") @db.Timestamptz
@@ -587,6 +588,7 @@ model InventoryMovement {
   order         Order?         @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKInventoryMovementsOrder")
   product       Product        @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "InventoryMovements_ProductId_fkey")
   purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKInventoryMovementsPurchaseOrder")
+  shopOrder     ShopOrder?     @relation(fields: [shopOrderId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "FKInventoryMovementsShopOrder")
 
   inventoryCountLine InventoryCountLine?
   returnDetails      ReturnDetail[]
@@ -595,6 +597,7 @@ model InventoryMovement {
   @@index([movementType], map: "IdxInvMovType")
   @@index([orderId], map: "IdxInvMovOrder")
   @@index([purchaseOrderId], map: "IdxInvMovPO")
+  @@index([shopOrderId], map: "IdxInvMovShopOrder")
   @@map("InventoryMovements")
   @@schema("public")
 }
@@ -1491,6 +1494,7 @@ model ShopOrder {
   shopCustomer ShopCustomer    @relation(fields: [shopCustomerId], references: [id])
   lines        ShopOrderLine[]
   payments     ShopPayment[]
+  inventoryMovements InventoryMovement[]
 
   @@index([shopCustomerId], map: "IdxShopOrdersCustomer")
   @@index([status], map: "IdxShopOrdersStatus")

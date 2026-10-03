@@ -72,14 +72,20 @@ export const shopPaymentsService = {
    */
   async payOrder(
     orderId: string,
-    data: { method?: ShopPaymentMethod; providerRef?: string; notes?: string },
+    data: {
+      method?: ShopPaymentMethod;
+      providerRef?: string;
+      notes?: string;
+      expectedCustomerReference?: string | null;
+      expectedCustomerReferenceAt?: string | null;
+    },
     webUserId: string,
   ) {
     return runWithTransactionRetry(async (tx) => {
       await lockShopOrder(tx, orderId);
       const order = await tx.shopOrder.findUnique({
         where: { id: orderId },
-        include: { payments: true },
+        include: { payments: { orderBy: { createdAt: "desc" } } },
       });
       if (!order) throw new NotFoundError("Pedido no encontrado");
       if (order.paymentStatus === "PAGADO") throw new ConflictError("El pedido ya está pagado");
@@ -89,9 +95,31 @@ export const shopPaymentsService = {
       }
 
       const pendingPayment = order.payments.find((p) => p.status === "PENDIENTE");
-      // Sin `providerRef` explícito se conserva la referencia que informó el cliente.
-      const customerReference = pendingPayment?.customerReference ?? null;
-      const providerRef = data.providerRef?.trim() || customerReference;
+      const storedReference = pendingPayment?.customerReference ?? null;
+      const verifiedReference = storedReference?.trim() ?? null;
+      const expectedReference = data.expectedCustomerReference?.trim() ?? data.expectedCustomerReference;
+      const storedReferenceAt = pendingPayment?.customerReferenceAt ?? null;
+      const expectedReferenceAt = data.expectedCustomerReferenceAt
+        ? new Date(data.expectedCustomerReferenceAt)
+        : null;
+      const referenceMatches = verifiedReference === null
+        ? expectedReference === null || expectedReference === undefined
+        : expectedReference === verifiedReference &&
+          expectedReferenceAt !== null &&
+          expectedReferenceAt !== undefined &&
+          storedReferenceAt !== null &&
+          expectedReferenceAt.getTime() === new Date(storedReferenceAt).getTime();
+      if (expectedReference !== null && expectedReference !== undefined && verifiedReference === null) {
+        throw new ConflictError("La referencia del cliente cambió desde que abriste el pedido; recarga y revísala antes de confirmar");
+      }
+      if (pendingPayment && verifiedReference !== null && !referenceMatches) {
+        throw new ConflictError("La referencia del cliente cambió desde que abriste el pedido; recarga y revísala antes de confirmar");
+      }
+
+      // Sin `providerRef` explícito se conserva exactamente la referencia verificada.
+      const providerRef = data.providerRef !== undefined
+        ? data.providerRef.trim()
+        : verifiedReference;
       const confirmedAt = new Date();
       if (pendingPayment) {
         await tx.shopPayment.update({
@@ -99,7 +127,7 @@ export const shopPaymentsService = {
           data: {
             method: data.method ?? pendingPayment.method,
             status: "COMPLETADO",
-            providerRef: providerRef || pendingPayment.providerRef,
+            providerRef,
             notes: data.notes?.trim() || pendingPayment.notes,
             confirmedByWebUserId: webUserId,
             confirmedAt,
