@@ -16,12 +16,18 @@ describe("reintento de transacciones por concurrencia", () => {
     { code: "P2010", meta: { code: "40001" } },
     { code: "P2010", meta: { sqlState: "40P01" } },
   ])("reintenta $code/$meta", async (error) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     prismaMock.$transaction
       .mockRejectedValueOnce(error)
       .mockResolvedValueOnce("ok");
 
     await expect(runWithTransactionRetry(async () => "ok", { baseDelayMs: 0 })).resolves.toBe("ok");
     expect(prismaMock.$transaction).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/^\{"event":"transaction_retry"/));
+    const entry = JSON.parse(warn.mock.calls[0][0]);
+    expect(entry).toMatchObject({ event: "transaction_retry", attempt: 1, maxAttempts: 3, delayMs: 0 });
+    expect(entry).not.toHaveProperty("message");
+    warn.mockRestore();
   });
 
   it("reconoce SQLSTATE en el mensaje y no reintenta errores de negocio", async () => {

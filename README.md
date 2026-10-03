@@ -132,6 +132,10 @@ npm run db:seed
 postgresql://ferreteria_user:ferreteria_dev_password@localhost:55432/ferreteria
 ```
 
+`npm run db:seed` carga siempre las referencias necesarias. Para cargar familias, productos, empleados y usuarios demo hay que definir `SEED_DEMO="true"`; úsalo únicamente en desarrollo local y nunca en producción. En producción debe quedar ausente o ser `false`.
+
+El administrador inicial de producción se crea opcionalmente con `SEED_ADMIN_USER` y `SEED_ADMIN_PASSWORD` (mínimo 12 caracteres y nunca `admin123`); `SEED_ADMIN_EMAIL` es opcional. Si no se definen, no se crea ninguna cuenta administrativa inicial.
+
 ### Producción
 
 - Objetivo: **Supabase PostgreSQL** con el mismo esquema.
@@ -142,9 +146,9 @@ postgresql://ferreteria_user:ferreteria_dev_password@localhost:55432/ferreteria
 
 ### Seed y credenciales
 
-El seed de producción carga únicamente referencias idempotentes y nunca modifica ajustes, PINs ni contraseñas existentes. Los datos demo (familias, productos, empleados con PIN y usuarios ficticios) solo se cargan cuando `SEED_DEMO="true"` y `NODE_ENV` no es `production`; las credenciales demo nunca existen en producción.
+El seed de producción carga únicamente referencias idempotentes y nunca modifica ajustes, PINs ni contraseñas existentes. Los datos demo (familias, productos, empleados con PIN y usuarios ficticios) solo se cargan cuando `SEED_DEMO="true"` fuera de producción; las credenciales demo nunca existen en producción.
 
-Para crear opcionalmente un administrador inicial, defina `SEED_ADMIN_USER`, `SEED_ADMIN_PASSWORD` (mínimo 12 caracteres, nunca `admin123`) y, opcionalmente, `SEED_ADMIN_EMAIL`. Si no se definen, el seed muestra `Admin inicial omitido: defina SEED_ADMIN_USER y SEED_ADMIN_PASSWORD` y continúa sin crear cuentas.
+Para crear opcionalmente un administrador inicial, defina `SEED_ADMIN_USER`, `SEED_ADMIN_PASSWORD` (mínimo 12 caracteres, nunca `admin123`) y, opcionalmente, `SEED_ADMIN_EMAIL`. Si no se definen, el seed muestra `Admin inicial omitido: defina SEED_ADMIN_USER y SEED_ADMIN_PASSWORD` y continúa sin crear cuentas. El seed carga `.env` sin sobrescribir variables ya definidas y respeta `DOTENV_CONFIG_PATH`.
 
 En la tienda, el pago con tarjeta es actualmente una intención pendiente: no se simula un cobro ni se genera `sim_...`. La confirmación del pago la realiza manualmente personal ADMIN u OWNER desde el panel, hasta integrar una pasarela real.
 
@@ -249,6 +253,8 @@ Estructura objetivo bajo `src/modules/` (Fase 8 en adelante):
 | `contact` | `/api/v1/contact-messages` | Tienda MVP | Contáctanos + bandeja admin |
 | `settings` | `/api/v1/settings` | Tienda MVP | CRUD settings (admin) |
 
+> **IVA (`Settings.IvaPercentage`) de solo lectura:** el checkout de la tienda y el POS calculan el IVA con la constante de código `IVA_RATE_EL_SALVADOR` (13 %, `src/shared/tax.ts`). Por eso `PATCH /api/v1/settings/IvaPercentage` solo acepta `13` y cualquier otro valor responde `400` con un mensaje explícito. Tasa y redondeo **a verificar con contador** antes de producción.
+
 ### Validaciones obligatorias del API
 
 - Toda entrada HTTP validada con **Zod** antes de tocar Prisma.
@@ -348,6 +354,8 @@ npm run dev
 | 00000002-0 | 5678 | Técnico confección |
 | 00000003-0 | 0000 | Caja demo |
 
+Estas filas solo aparecen con `SEED_DEMO="true"` fuera de producción.
+
 Cambiar PINs antes de producción. La caja WPF valida contra `hr."Employees"."PinHash"`.
 
 ### Usuarios web demo (solo desarrollo)
@@ -357,7 +365,7 @@ Cambiar PINs antes de producción. La caja WPF valida contra `hr."Employees"."Pi
 | `admin` | `admin123` | ADMIN |
 | `contador` | `contador123` | ACCOUNTANT |
 
-El usuario `contador` no se siembra cuando `NODE_ENV=production`.
+Estos usuarios solo aparecen con `SEED_DEMO="true"` fuera de producción; en producción usa `SEED_ADMIN_USER` y `SEED_ADMIN_PASSWORD` para el administrador inicial.
 
 ### Herramientas útiles
 
@@ -425,7 +433,7 @@ Alineado a `FERRETERIA_PLAN_FINALIZACION_APP.md`:
 ### Contrato de autenticación del panel
 
 - `POST /api/v1/auth/login`: devuelve `{ accessToken, user, csrfToken }` y emite `fer_access` (`httpOnly`, `Path=/api`, `SameSite` configurable, `Secure` en producción) y `fer_csrf` (legible por JS).
-- `POST /api/v1/auth/logout`: elimina ambas cookies.
+- `POST /api/v1/auth/logout`: invalida el token admin vigente y elimina ambas cookies. Como `tokenVersion` es por usuario, cierra todas sus sesiones activas por diseño; sin token o con uno inválido/caducado también responde éxito. Si la sesión viaja en la cookie `fer_access` vigente exige `X-CSRF-Token` válido (403 `CSRF_INVALID` en otro caso); con `Authorization: Bearer` no se exige CSRF.
 - `GET /api/v1/auth/csrf`: rota el token CSRF (requiere sesión) y lo devuelve como `{ csrfToken }`.
 - El panel (otro origen) debe usar `credentials: 'include'` y enviar en `X-CSRF-Token` el `csrfToken` recibido en el cuerpo de login/csrf (guardado en memoria), porque `document.cookie` del panel no ve `fer_csrf` (cookie del dominio de la API con `Path=/api`).
 - `GET /api/v1/auth/me`: consulta la sesión autenticada.
@@ -436,7 +444,7 @@ Alineado a `FERRETERIA_PLAN_FINALIZACION_APP.md`:
 
 - `POST /api/v1/shop/auth/register` y `POST /api/v1/shop/auth/login`: devuelven `{ accessToken, customer, csrfToken }` y emiten únicamente `fer_shop_access` (`httpOnly`) y `fer_shop_csrf` (legible por JS).
 - Las cookies de tienda usan `Path=/api/v1/shop`, `SameSite` configurable, `Secure` en producción o cuando `COOKIE_SECURE=true`, `Domain` configurable y `Max-Age` igual a la expiración del JWT. No se leen ni sobrescriben `fer_access`/`fer_csrf`.
-- `POST /api/v1/shop/auth/logout`: limpia solo cookies de tienda y devuelve `{ loggedOut: true }`. Puede limpiar cookies caducadas sin sesión válida; si `fer_shop_access` contiene un JWT vigente exige `X-CSRF-Token` válido.
+- `POST /api/v1/shop/auth/logout`: invalida el token SHOP vigente y limpia solo cookies de tienda; devuelve `{ loggedOut: true }` incluso sin token o con uno inválido/caducado. Como `tokenVersion` es por cliente, cierra todas sus sesiones activas por diseño. Si `fer_shop_access` contiene un JWT vigente exige `X-CSRF-Token` válido; con Bearer no.
 - `GET /api/v1/shop/auth/csrf`: requiere sesión tienda por Bearer o `fer_shop_access`, rota `fer_shop_csrf` y devuelve `{ csrfToken }`.
 - `GET` autenticado por cookie no requiere CSRF. Las mutaciones autenticadas por cookie sí requieren `X-CSRF-Token` igual a `fer_shop_csrf`; Bearer no requiere CSRF. La firma HMAC usa un dominio distinto (`shop-csrf.`) al administrativo.
 
@@ -446,6 +454,10 @@ Alineado a `FERRETERIA_PLAN_FINALIZACION_APP.md`:
 - Body opcional: `{ "method": "EFECTIVO_RETIRO" | "TRANSFERENCIA" | "TARJETA" | "CONTRA_ENTREGA", "providerRef": "...", "notes": "..." }`.
 - Respuestas relevantes: `403` si el rol no está autorizado o falla CSRF, `404` si el pedido no existe y `409` si ya está pagado o cancelado.
 - La integración con una pasarela real está pendiente; el checkout con tarjeta queda `PENDIENTE` y el personal confirma manualmente el pago.
+
+- `POST /api/v1/shop/orders/:id/transfer-reference` — el dueño del pedido registra o reemplaza `{ "reference": "...", "notes": "..." }` cuando el método es `TRANSFERENCIA`, el pedido no está cancelado y el pago está `PENDIENTE` o `EN_VERIFICACION`.
+- La referencia queda en el pago pendiente como `CustomerReference`/`CustomerReferenceAt`, el pedido pasa a `EN_VERIFICACION` y nunca se marca `PAGADO` ni `COMPLETADO` desde la tienda. La confirmación final la hace el personal desde el panel en **Pedidos de tienda**; si no envía `providerRef`, se usa la referencia del cliente.
+- `GET /api/v1/shop-orders/:id` — detalle del panel para `ADMIN`, `ACCOUNTANT` u `OWNER`; el listado administrativo también admite `paymentStatus`.
 
 Tras desplegar esta versión, los tokens emitidos antes de incluir el claim `tv` se rechazan. Todos los usuarios deben iniciar sesión nuevamente una vez.
 

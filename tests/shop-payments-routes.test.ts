@@ -1,5 +1,6 @@
 import request from "supertest";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { createCsrfToken } from "../src/shared/cookies.js";
 import { signAccessToken } from "../src/shared/jwt.js";
 
 const adminId = "550e8400-e29b-41d4-a716-446655440000";
@@ -77,5 +78,25 @@ describe("confirmación manual de pagos de tienda", () => {
     expect(payOrderMock).toHaveBeenCalledWith(orderId, {
       method: "TRANSFERENCIA",
     }, ownerId);
+  });
+
+  it("exige CSRF cuando el panel usa cookie y acepta el token CSRF válido", async () => {
+    const token = signAccessToken({ userId: adminId, role: "ADMIN", tv: 0 });
+    const csrf = createCsrfToken(adminId, "admin");
+    const cookie = [`fer_access=${token}`, `fer_csrf=${csrf}`];
+
+    const missingCsrf = await request(app)
+      .post(`/api/v1/shop/orders/${orderId}/pay`)
+      .set("Cookie", cookie)
+      .send({ method: "TRANSFERENCIA" });
+    expect(missingCsrf.status).toBe(403);
+    expect(missingCsrf.body.error).toBe("CSRF_INVALID");
+
+    const validCsrf = await request(app)
+      .post(`/api/v1/shop/orders/${orderId}/pay`)
+      .set("Cookie", cookie)
+      .set("X-CSRF-Token", csrf)
+      .send({ method: "TRANSFERENCIA" });
+    expect(validCsrf.status).toBe(200);
   });
 });

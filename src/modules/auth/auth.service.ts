@@ -26,6 +26,22 @@ const webUserPublicSelect = {
 } as const;
 
 export const authService = {
+  /**
+   * Invalida atómicamente el token de sesión si su versión sigue vigente.
+   * La versión pertenece al usuario, por lo que cerrar sesión invalida todas sus sesiones activas por diseño.
+   *
+   * @param userId - UUID del WebUser identificado por el JWT.
+   * @param tokenVersion - Versión incluida en el JWT validado.
+   * @returns `true` si la versión fue incrementada; `false` si ya cambió.
+   */
+  async logout(userId: string, tokenVersion: number): Promise<boolean> {
+    const result = await prisma.webUser.updateMany({
+      where: { id: userId, tokenVersion },
+      data: { tokenVersion: { increment: 1 }, updatedAt: new Date() },
+    });
+    return result.count === 1;
+  },
+
   /** Valida credenciales por email/username; emite JWT y actualiza `lastLoginAt`. */
   async login(login: string, password: string) {
     const user = await prisma.webUser.findFirst({

@@ -105,19 +105,25 @@ describe("concurrencia real de inventario y tienda", () => {
 
   it("acepta una sola recepción concurrente y rechaza las siguientes", async () => {
     const results = await Promise.allSettled([
-      purchaseOrdersService.receive(ids.purchaseOrder, { receivedById: ids.employee }),
-      purchaseOrdersService.receive(ids.purchaseOrder, { receivedById: ids.employee }),
+      purchaseOrdersService.receive(ids.purchaseOrder),
+      purchaseOrdersService.receive(ids.purchaseOrder),
     ]);
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((result) => result.status === "rejected" && result.reason.statusCode === 409)).toHaveLength(1);
     const receivedBeforeThirdCall = await prisma.$queryRaw<Array<{ stock: string }>>`SELECT "CurrentStock"::text AS stock FROM public."Products" WHERE "id" = ${ids.receivingProduct}::uuid`;
-    await expect(purchaseOrdersService.receive(ids.purchaseOrder, { receivedById: ids.employee })).rejects.toMatchObject({ statusCode: 409 });
+    await expect(purchaseOrdersService.receive(ids.purchaseOrder)).rejects.toMatchObject({ statusCode: 409 });
     const receivedAfterThirdCall = await prisma.$queryRaw<Array<{ stock: string }>>`SELECT "CurrentStock"::text AS stock FROM public."Products" WHERE "id" = ${ids.receivingProduct}::uuid`;
     expect(receivedBeforeThirdCall[0].stock).toBe("6.000");
     expect(receivedAfterThirdCall[0].stock).toBe("6.000");
     const movements = await prisma.$queryRaw<Array<{ quantity: string }>>`SELECT quantity::text AS quantity FROM public."InventoryMovements" WHERE "PurchaseOrderId" = ${ids.purchaseOrder}::uuid`;
     expect(movements).toHaveLength(1);
     expect(movements[0].quantity).toBe("2.000");
+    const attribution = await prisma.$queryRaw<Array<{ receivedBy: string | null; employeeId: string | null }>>`
+      SELECT po."ReceivedById" AS "receivedBy", im."EmployeeId" AS "employeeId"
+      FROM purchasing."PurchaseOrders" po
+      JOIN public."InventoryMovements" im ON im."PurchaseOrderId" = po."id"
+      WHERE po."id" = ${ids.purchaseOrder}::uuid`;
+    expect(attribution).toEqual([{ receivedBy: null, employeeId: null }]);
   });
 
   it("serializa dos checkouts del mismo cliente y descuenta una sola vez", async () => {

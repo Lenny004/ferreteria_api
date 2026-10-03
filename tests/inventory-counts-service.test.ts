@@ -86,7 +86,7 @@ describe("servicio de conteos físicos", () => {
       data: [{ countId, productId, systemStockAtStart: product.currentStock }],
     });
     expect(prismaMock.$executeRaw).toHaveBeenCalledWith(expect.anything());
-    expect(prismaMock.$transaction).toHaveBeenLastCalledWith(expect.any(Function), { maxWait: 10_000, timeout: 60_000 });
+    expect(prismaMock.$transaction).toHaveBeenLastCalledWith(expect.any(Function), { maxWait: 5_000, timeout: 15_000 });
   });
 
   it("captura, valida decimales y rechaza productos fuera del conteo", async () => {

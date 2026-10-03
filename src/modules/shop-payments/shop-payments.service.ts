@@ -68,7 +68,7 @@ export const shopPaymentsService = {
    * @param webUserId - UUID del WebUser autenticado que realiza la confirmación.
    * @returns Pedido actualizado con estado de pago PAGADO.
    * @throws {NotFoundError} Si el pedido no existe.
-   * @throws {ConflictError} Si ya fue pagado o está cancelado.
+   * @throws {ConflictError} Si el pedido está pagado, cancelado o en un estado de pago no confirmable.
    */
   async payOrder(
     orderId: string,
@@ -84,8 +84,14 @@ export const shopPaymentsService = {
       if (!order) throw new NotFoundError("Pedido no encontrado");
       if (order.paymentStatus === "PAGADO") throw new ConflictError("El pedido ya está pagado");
       if (order.status === "CANCELADA") throw new ConflictError("No se puede pagar un pedido cancelado");
+      if (!["PENDIENTE", "EN_VERIFICACION"].includes(order.paymentStatus)) {
+        throw new ConflictError("El estado de pago del pedido no permite confirmarlo");
+      }
 
       const pendingPayment = order.payments.find((p) => p.status === "PENDIENTE");
+      // Sin `providerRef` explícito se conserva la referencia que informó el cliente.
+      const customerReference = pendingPayment?.customerReference ?? null;
+      const providerRef = data.providerRef?.trim() || customerReference;
       const confirmedAt = new Date();
       if (pendingPayment) {
         await tx.shopPayment.update({
@@ -93,7 +99,7 @@ export const shopPaymentsService = {
           data: {
             method: data.method ?? pendingPayment.method,
             status: "COMPLETADO",
-            providerRef: data.providerRef?.trim() || pendingPayment.providerRef,
+            providerRef: providerRef || pendingPayment.providerRef,
             notes: data.notes?.trim() || pendingPayment.notes,
             confirmedByWebUserId: webUserId,
             confirmedAt,
@@ -107,7 +113,7 @@ export const shopPaymentsService = {
             method: data.method ?? "EFECTIVO_RETIRO",
             amount: order.total,
             status: "COMPLETADO",
-            providerRef: data.providerRef?.trim() || null,
+            providerRef,
             notes: data.notes?.trim() || null,
             confirmedByWebUserId: webUserId,
             confirmedAt,
@@ -124,6 +130,6 @@ export const shopPaymentsService = {
         },
         include: shopOrderInclude,
       });
-    }, { maxWait: 10_000, timeout: 60_000 });
+    });
   },
 };

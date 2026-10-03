@@ -31,6 +31,8 @@ export const shopOrderClientInclude = {
       amount: true,
       status: true,
       providerRef: true,
+      customerReference: true,
+      customerReferenceAt: true,
       notes: true,
       confirmedAt: true,
       createdAt: true,
