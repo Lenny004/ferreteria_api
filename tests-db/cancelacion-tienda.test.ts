@@ -129,6 +129,25 @@ describe("cancelación de pedidos de tienda con reposición", () => {
     }
   });
 
+  it("rechaza cancelar un pedido ENTREGADA sin reponer stock", { timeout: 30_000 }, async () => {
+    const fixture = await createFixture();
+    try {
+      const order = await checkout(fixture);
+      await prisma.$executeRaw`UPDATE system."ShopOrders" SET "Status" = 'ENTREGADA' WHERE "id" = ${order.id}::uuid`;
+      await expect(shopOrdersService.updateAdmin(order.id, { status: "CANCELADA" }))
+        .rejects.toMatchObject({ statusCode: 409 });
+      const state = await prisma.$queryRaw<Array<{ status: string; returns: bigint }>>`
+        SELECT so."Status" AS status,
+          (SELECT COUNT(*) FROM public."InventoryMovements" im
+           WHERE im."ShopOrderId" = so."id" AND im."MovementType" = 'ENTRADA_DEVOLUCION') AS returns
+        FROM system."ShopOrders" so WHERE so."id" = ${order.id}::uuid`;
+      expect(state[0].status).toBe("ENTREGADA");
+      expect(Number(state[0].returns)).toBe(0);
+    } finally {
+      await deleteFixture(fixture);
+    }
+  });
+
   it("serializa cancelar contra confirmar pago: uno gana y el otro responde 409", { timeout: 30_000 }, async () => {
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const fixture = await createFixture();
