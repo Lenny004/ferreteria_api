@@ -136,10 +136,20 @@ postgresql://ferreteria_user:CAMBIAR_PASSWORD_LOCAL@localhost:55432/ferreteria
 La contraseña local que estuvo versionada aquí y en `erp_ferreteria` es pública y debe considerarse expuesta. Si el volumen `ferreteria-postgres-data` ya existe, PostgreSQL conserva la contraseña vieja (las variables `POSTGRES_*` solo aplican al crear el volumen). Cámbiela con:
 
 ```bash
-docker exec -it ferreteria-postgres psql -U ferreteria_user -d ferreteria -c "ALTER ROLE ferreteria_user PASSWORD 'NUEVA_PASSWORD';"
+docker exec -it ferreteria-postgres psql -U ferreteria_user -d ferreteria
 ```
 
+Dentro de `psql`, ejecute:
+
+```sql
+\password ferreteria_user
+```
+
+Así, la nueva contraseña se solicita sin eco y no queda en el historial del shell ni en el log de PostgreSQL.
+
 Después actualice `.env`, los User Secrets del POS y cualquier otra máquina que se conecte.
+
+Por defecto, PostgreSQL escucha solo en `127.0.0.1`. Si cajas POS u otras máquinas de la LAN necesitan conectarse a esta base, defina `POSTGRES_BIND` en `.env` (por ejemplo, con la IP LAN del servidor o `0.0.0.0`; idealmente limite el puerto con el firewall) y recree el contenedor con `docker compose up -d`.
 
 `npm run db:seed` carga siempre las referencias necesarias. Para cargar familias, productos, empleados y usuarios demo hay que definir `SEED_DEMO="true"`; úsalo únicamente en desarrollo local y nunca en producción. En producción debe quedar ausente o ser `false`.
 

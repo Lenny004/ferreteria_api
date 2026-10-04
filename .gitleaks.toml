@@ -55,8 +55,8 @@ description = "Marcadores de posición y credenciales desechables de pruebas"
 regexTarget = "secret"
 regexes = [
   '''^(?:\.{3}|\*{3}|<[^>]*>)$''',
-  # Interpolaciones de entorno (${VAR}, ${VAR:?mensaje}, $(cmd)): el valor real vive fuera del repo.
-  '''^\$[{(]''',
+  # Solo ${VAR} o ${VAR:?mensaje}; un valor por defecto (${VAR:-valor}) sí se revisa.
+  '''^\$\{[A-Za-z_][A-Za-z0-9_]*(?:\}|:?\?)''',
   '''^CAMBIAR_[A-Z_]+$''',
   '''(?i)^(?:tu|your)_[a-z_]+$''',
   '''^qa-only-password$''',
@@ -64,9 +64,7 @@ regexes = [
   '''^sin_conectar$''',
   '''^throwaway_only$''',
   '''^(?:pass|password)$''',
-  '''cambiar-en-produccion''',
-  '''^ci-[a-z0-9-]+$''',
-  '''^test-[a-z0-9-]+$''',
+  '''^cambiar-en-produccion[a-z0-9-]*$''',
   '''^(?:1234567890)+[0-9]{0,9}$''',
   '''^z\.''',
 ]
@@ -77,3 +75,11 @@ regexes = [
 description = "Contraseñas ficticias en pruebas del seed"
 targetRules = ["password-semilla-admin", "generic-api-key"]
 paths = ['''^tests/seed\.test\.ts$''']
+
+# Valores ci-/test- desechables: solo dentro del CI y de las pruebas.
+[[allowlists]]
+description = "Valores ci-/test- solo en CI y pruebas"
+condition = "AND"
+regexTarget = "secret"
+regexes = ['''^(?:ci|test)-[a-z0-9-]+$''']
+paths = ['''^\.github/workflows/ci\.yml$''', '''^tests?/''', '''(?:^|/)__tests__/''']
