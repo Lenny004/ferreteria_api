@@ -21,6 +21,7 @@ jobs:
   verify:
     # Se fija la imagen para que el cambio a Ubuntu 26 sea una decisión explícita.
     runs-on: ubuntu-24.04
+    # Credenciales desechables del contenedor efímero de CI; no corresponden a ningún entorno real.
     services:
       postgres:
         image: postgres:17
