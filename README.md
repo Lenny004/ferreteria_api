@@ -112,11 +112,12 @@ La caja **no** consume esta API en el MVP inicial; escribe directamente en Postg
 ### Desarrollo local rápido
 
 ```bash
-# 1. Levantar PostgreSQL
-docker compose up -d
-
-# 2. Configurar variables
+# 1. Configurar variables
 cp .env.example .env
+# Reemplace CAMBIAR_PASSWORD_LOCAL en POSTGRES_PASSWORD y DATABASE_URL por una contraseña propia (ej. `openssl rand -hex 24`)
+
+# 2. Levantar PostgreSQL
+docker compose up -d
 
 # 3. Aplicar el historial de migraciones
 npm install
@@ -126,11 +127,19 @@ npm run db:migrate:deploy
 npm run db:seed
 ```
 
-`DATABASE_URL` por defecto:
+Formato de `DATABASE_URL` (la contraseña nunca se versiona; use la misma de `POSTGRES_PASSWORD`):
 
 ```
-postgresql://ferreteria_user:ferreteria_dev_password@localhost:55432/ferreteria
+postgresql://ferreteria_user:CAMBIAR_PASSWORD_LOCAL@localhost:55432/ferreteria
 ```
+
+La contraseña local que estuvo versionada aquí y en `erp_ferreteria` es pública y debe considerarse expuesta. Si el volumen `ferreteria-postgres-data` ya existe, PostgreSQL conserva la contraseña vieja (las variables `POSTGRES_*` solo aplican al crear el volumen). Cámbiela con:
+
+```bash
+docker exec -it ferreteria-postgres psql -U ferreteria_user -d ferreteria -c "ALTER ROLE ferreteria_user PASSWORD 'NUEVA_PASSWORD';"
+```
+
+Después actualice `.env`, los User Secrets del POS y cualquier otra máquina que se conecte.
 
 `npm run db:seed` carga siempre las referencias necesarias. Para cargar familias, productos, empleados y usuarios demo hay que definir `SEED_DEMO="true"`; úsalo únicamente en desarrollo local y nunca en producción. En producción debe quedar ausente o ser `false`.
 
@@ -151,6 +160,15 @@ El seed de producción carga únicamente referencias idempotentes y nunca modifi
 Para crear opcionalmente un administrador inicial, defina `SEED_ADMIN_USER`, `SEED_ADMIN_PASSWORD` (mínimo 12 caracteres, nunca `admin123`) y, opcionalmente, `SEED_ADMIN_EMAIL`. Si no se definen, el seed muestra `Admin inicial omitido: defina SEED_ADMIN_USER y SEED_ADMIN_PASSWORD` y continúa sin crear cuentas. El seed carga `.env` sin sobrescribir variables ya definidas y respeta `DOTENV_CONFIG_PATH`.
 
 En la tienda, el pago con tarjeta es actualmente una intención pendiente: no se simula un cobro ni se genera `sim_...`. La confirmación del pago la realiza manualmente personal ADMIN u OWNER desde el panel, hasta integrar una pasarela real.
+
+### Escaneo de secretos
+
+CI ejecuta gitleaks mediante `.github/workflows/secretos.yml`. Para ejecutarlo localmente:
+
+```bash
+gitleaks dir . --config .gitleaks.toml --redact
+gitleaks git . --config .gitleaks.toml --log-opts=--all --redact
+```
 
 ## Esquemas PostgreSQL
 
@@ -338,9 +356,12 @@ ferreteria_backend/
 # Clonar y entrar al repo
 cd ferreteria_backend
 
+# Variables y credenciales locales
+cp .env.example .env
+# Reemplace CAMBIAR_PASSWORD_LOCAL en POSTGRES_PASSWORD y DATABASE_URL por una contraseña propia (ej. `openssl rand -hex 24`)
+
 # Base de datos
 docker compose up -d
-cp .env.example .env
 npm install
 npm run db:migrate:deploy
 npm run db:seed

@@ -1,0 +1,79 @@
+# Configuración de gitleaks para el ecosistema Ferretería.
+# Extiende las reglas oficiales y agrega detectores propios para cadenas de conexión
+# PostgreSQL/Npgsql, docker-compose y credenciales del MH (DTE), que las reglas por
+# defecto no detectan. Solo se permiten valores que son claramente de prueba.
+title = "Gitleaks - Ferreteria"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "cadena-conexion-password"
+description = "Contraseña dentro de una cadena de conexión Npgsql/ADO.NET (Host=...;Password=...)"
+regex = '''(?i)(?:host|server|data source)\s*=[^"'\n]*?;[^"'\n]*?\b(?:password|pwd)\s*=\s*([^;"'\s]{3,})'''
+secretGroup = 1
+keywords = ["password", "pwd"]
+
+[[rules]]
+id = "postgres-url-credenciales"
+description = "URL postgres:// o postgresql:// con usuario y contraseña embebidos"
+regex = '''(?i)postgres(?:ql)?://[^:/\s"'@]+:([^@\s"'/]{3,})@'''
+secretGroup = 1
+keywords = ["postgres"]
+
+[[rules]]
+id = "postgres-password-variable"
+description = "POSTGRES_PASSWORD / PGPASSWORD con valor literal (.env, docker-compose, CI)"
+regex = '''(?i)\b(?:POSTGRES_PASSWORD|PGPASSWORD)["']?\s*[:=]\s*["']?([^"'\s#]{3,})'''
+secretGroup = 1
+keywords = ["postgres_password", "pgpassword"]
+
+[[rules]]
+id = "mh-dte-credenciales"
+description = "Credenciales del Ministerio de Hacienda / Firmador DTE con valor literal"
+regex = '''(?i)["']?\b(?:ApiPassword|CertPassword|passwordPri|passwordPub|ClavePrivada|ClaveApi|MH_[A-Z_]*(?:PASSWORD|PWD|CLAVE))["']?\s*[:=]\s*["']([^"'\s]{4,})["']'''
+secretGroup = 1
+keywords = ["apipassword", "certpassword", "passwordpri", "passwordpub", "claveprivada", "claveapi", "mh_"]
+
+[[rules]]
+id = "secreto-firma-sesion"
+description = "Secreto de firma JWT/sesión/cookie con valor literal"
+regex = '''(?i)\b(?:JWT_SECRET|JWT_[A-Z_]*SECRET|SESSION_SECRET|COOKIE_SECRET|NEXTAUTH_SECRET|AUTH_SECRET)["']?\s*[:=]\s*["']?([^"'\s$]{8,})'''
+secretGroup = 1
+keywords = ["secret"]
+
+[[rules]]
+id = "password-semilla-admin"
+description = "Contraseña literal del administrador inicial (SEED_ADMIN_PASSWORD)"
+regex = '''(?i)\bSEED_ADMIN_PASSWORD["']?\s*[:=]\s*["']([^"'\s]{4,})["']'''
+secretGroup = 1
+keywords = ["seed_admin_password"]
+
+# Valores permitidos: SOLO marcadores de posición o credenciales desechables de pruebas/CI.
+[[allowlists]]
+description = "Marcadores de posición y credenciales desechables de pruebas"
+regexTarget = "secret"
+regexes = [
+  '''^(?:\.{3}|\*{3}|<[^>]*>)$''',
+  # Interpolaciones de entorno (${VAR}, ${VAR:?mensaje}, $(cmd)): el valor real vive fuera del repo.
+  '''^\$[{(]''',
+  '''^CAMBIAR_[A-Z_]+$''',
+  '''(?i)^(?:tu|your)_[a-z_]+$''',
+  '''^qa-only-password$''',
+  '''^test-only$''',
+  '''^sin_conectar$''',
+  '''^throwaway_only$''',
+  '''^(?:pass|password)$''',
+  '''cambiar-en-produccion''',
+  '''^ci-[a-z0-9-]+$''',
+  '''^test-[a-z0-9-]+$''',
+  '''^(?:1234567890)+[0-9]{0,9}$''',
+  '''^z\.''',
+]
+
+# Pruebas del validador de SEED_ADMIN_PASSWORD: usan contraseñas ficticias a propósito
+# (débiles para comprobar el rechazo y una frase de ejemplo para el caso válido).
+[[allowlists]]
+description = "Contraseñas ficticias en pruebas del seed"
+targetRules = ["password-semilla-admin", "generic-api-key"]
+paths = ['''^tests/seed\.test\.ts$''']

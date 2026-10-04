@@ -6,9 +6,11 @@ services:
     environment:
       POSTGRES_DB: ferreteria
       POSTGRES_USER: ferreteria_user
-      POSTGRES_PASSWORD: ferreteria_dev_password
+      # La contraseña se toma de .env (ver .env.example); el arranque falla si no está definida.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD en .env (ver .env.example)}
     ports:
-      - "55432:5432"
+      # Solo localhost por defecto; cambie POSTGRES_BIND si otra máquina de la LAN debe conectarse.
+      - "${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PORT:-55432}:5432"
     volumes:
       # Datos persistentes del contenedor
       - ferreteria-postgres-data:/var/lib/postgresql/data
