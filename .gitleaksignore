@@ -1,0 +1,12 @@
+# Hallazgos históricos ya expuestos en repositorio público. NO es una excepción de seguridad:
+# las credenciales correspondientes deben estar ROTADAS (ver la nota de rotación del README.md).
+# Formato: commit:archivo:regla:línea. No agregar entradas nuevas sin rotar la credencial.
+8beb42f500e83a79551e7b527de9c5551a1030c5:.env.example:postgres-password-variable:4
+8beb42f500e83a79551e7b527de9c5551a1030c5:.env.example:postgres-url-credenciales:1
+8beb42f500e83a79551e7b527de9c5551a1030c5:README.md:postgres-url-credenciales:130
+c2cde238014ba7246f03f357ea02fee5e9d1c7a8:README.md:postgres-url-credenciales:23
+d5f0bd139ed34393b7d3f654e388396ab0b5f4ad:docker-compose.yml:postgres-password-variable:9
+c2cde238014ba7246f03f357ea02fee5e9d1c7a8:.env.example:postgres-password-variable:4
+c2cde238014ba7246f03f357ea02fee5e9d1c7a8:.env.example:postgres-url-credenciales:1
+53ac4fe6ec31ec8f339e53983c8ecd1d6aeed7b5:README.md:postgres-url-credenciales:127
+c2cde238014ba7246f03f357ea02fee5e9d1c7a8:docker-compose.yml:postgres-password-variable:9
