@@ -18,7 +18,7 @@ API REST administrativa de **Ferreteria**. Centraliza reglas de negocio que la c
 - [Estado actual del repositorio](#estado-actual-del-repositorio)
 - [Base de datos](#base-de-datos)
 - [Esquemas PostgreSQL](#esquemas-postgresql)
-- [Módulos API planificados](#módulos-api-planificados)
+- [Módulos API montados](#módulos-api-montados)
 - [Estructura del proyecto](#estructura-del-proyecto)
 - [Instalación y desarrollo local](#instalación-y-desarrollo-local)
 - [Scripts npm](#scripts-npm)
@@ -81,13 +81,14 @@ La caja **no** consume esta API en el MVP inicial; escribe directamente en Postg
 | Componente | Estado | Notas |
 |---|---|---|
 | `prisma/schema.prisma` v3.0 | ✅ Implementado | Fuente de verdad del esquema BD |
+| `prisma/migrations/` | ✅ Implementado | Historial versionado de cambios del esquema |
 | `prisma/seed.ts` | ✅ Implementado | Tipos de medida, familias, empleados demo, Consumidor Final |
 | `docker-compose.yml` | ✅ Implementado | PostgreSQL local puerto **55432** |
 | `database/init.sql` | ✅ Implementado | Extensiones, esquemas y permisos iniciales |
-| `src/` Express API | ✅ Admin + MVP tienda pública | Auth JWT admin, shop, catálogo público, contacto |
-| Módulos `auth`, `employees`, catálogo | ✅ | Planilla/inventario/compras/fiscal OK |
-| Tienda B2C (catálogo, shop auth, favoritos, contacto) | ✅ MVP | Checkout/pagos pendientes |
-| Tests | 🔲 Pendiente | Fase 10+ |
+| `src/app.ts` | ✅ 30 routers montados | Rutas bajo `/api/v1` y endpoint `/health` |
+| `src/modules/` | ✅ Implementado | Módulos administrativos, fiscales, dashboard y tienda pública |
+| `tests/*.test.ts` | ✅ 36 archivos | Suite Vitest sin la configuración de base de datos |
+| `tests-db/*.test.ts` | ✅ 8 archivos | Suite Vitest con `vitest.db.config.ts` |
 
 **Regla operativa:** desde v3.0, `prisma/schema.prisma` es la fuente principal del schema. No ejecutar `Squema.sql` legacy y Prisma sobre la misma BD sin coordinación.
 
@@ -250,39 +251,68 @@ gitleaks git . --config .gitleaks.toml --log-opts=--all --redact
 
 ---
 
-## Módulos API planificados
+## Módulos API montados
 
-Estructura objetivo bajo `src/modules/` (Fase 8 en adelante):
+Los siguientes 30 montajes se comprueban en `src/app.ts`; los subpaths se definen en los routers correspondientes.
 
-| Módulo | Ruta base | Fase | Descripción |
-|---|---|---|---|
-| `auth` | `/api/v1/auth` | 8 | Login JWT admin (`WebUsers`) + forgot/reset |
-| `employees` | `/api/v1/employees` | 8 | CRUD empleados, asignación PIN, ficha PDF |
-| `employee-bank-accounts` | `/api/v1/employees/:id/banks` | 8 | Cuentas bancarias por empleado |
-| `employee-documents` | `/api/v1/employees/:id/documents` | 8 | Expediente documental |
-| `banks` | `/api/v1/banks` | 8 | Catálogo editable de bancos SV |
-| `required-document-types` | `/api/v1/document-types` | 8 | Tipos de documento requerido |
-| `products` | `/api/v1/products` | 8–9 | CRUD catálogo + filtros |
-| `customers` | `/api/v1/customers` | 8 | Maestro fiscal de clientes |
-| `inventory` | `/api/v1/inventory` | 9 | ✅ Entradas, ajustes, Kardex, alertas, import JSON |
-| `suppliers` | `/api/v1/suppliers` | 9b | Maestro de proveedores |
-| `purchase-orders` | `/api/v1/purchase-orders` | 9b | Órdenes de compra y recepción |
-| `imports` | `/api/v1/import` | 9 | Excel catálogo y entradas |
-| `payroll-periods` | `/api/v1/payroll/periods` | 10 | Periodos de planilla |
-| `payroll-runs` | `/api/v1/payroll/runs` | 10 | Corridas, cálculo legal, Excel/PDF |
-| `aguinaldo` | `/api/v1/payroll/aguinaldo` | 10b | Corrida anual |
-| `leave-requests` | `/api/v1/leaves` | 10b | Vacaciones y permisos |
-| `employee-terminations` | `/api/v1/terminations` | 10c | Liquidaciones |
-| `fiscal/iva-reports` | `/api/v1/fiscal/iva-reports` | 10d | Libros de IVA |
-| `dashboard` | `/api/v1/dashboard` | 11 | KPIs ventas, inventario, compras, RRHH |
-| `reports` | `/api/v1/reports` | 10 | Exportaciones generales |
-| `dte` | `/api/v1/dte` | 10 | Consulta DTE (sin exponer certificados) |
-| `public-catalog` | `/api/v1/public/catalog` | Tienda MVP | Catálogo sin JWT (búsqueda/filtros) |
-| `public-settings` | `/api/v1/public/settings` | Tienda MVP | Términos, privacidad, BusinessName |
-| `shop-auth` | `/api/v1/shop/auth` | Tienda MVP | Registro/login/perfil `ShopCustomer` |
-| `favorites` | `/api/v1/shop/favorites` | Tienda MVP | Favoritos de productos |
-| `contact` | `/api/v1/contact-messages` | Tienda MVP | Contáctanos + bandeja admin |
-| `settings` | `/api/v1/settings` | Tienda MVP | CRUD settings (admin) |
+| Módulo/router | Ruta base montada | Alcance comprobado |
+|---|---|---|
+| `auth` | `/api/v1/auth` | Login, logout, CSRF, sesión, recuperación y cambio de contraseña |
+| `public-catalog` | `/api/v1/public/catalog` | Familias, departamentos, subfamilias y productos públicos |
+| `public-settings` | `/api/v1/public/settings` | Consulta pública de configuración |
+| `shop-auth` | `/api/v1/shop/auth` | Registro, login, sesión y perfil de clientes de tienda |
+| `favorites` | `/api/v1/shop/favorites` | Listado, alta y baja de favoritos |
+| `cart` | `/api/v1/shop/cart` | Consulta, actualización y limpieza del carrito |
+| `shop-orders` | `/api/v1/shop/orders` | Checkout, pedidos del cliente, referencia de transferencia y pago administrativo anidado |
+| `shop-orders (admin)` | `/api/v1/shop-orders` | Listado, detalle y actualización administrativa de pedidos |
+| `contact` | `/api/v1/contact-messages` | Creación pública y bandeja administrativa de mensajes |
+| `settings` | `/api/v1/settings` | Consulta y actualización administrativa de configuración |
+| `employees` | `/api/v1/employees` | Empleados y subrecursos de cuentas bancarias y documentos |
+| `banks` | `/api/v1/banks` | Catálogo de bancos |
+| `document-types` | `/api/v1/document-types` | Tipos de documentos requeridos |
+| `catalogs` | `/api/v1/departments` | Catálogo de departamentos |
+| `catalogs` | `/api/v1/positions` | Catálogo de cargos |
+| `customers` | `/api/v1/customers` | Clientes |
+| `products` | `/api/v1/products` | Productos |
+| `inventory` | `/api/v1/inventory` y `/api/v1/inventory/counts` | Movimientos, Kardex, alertas, valoración, importación y conteos |
+| `purchasing` | `/api/v1/suppliers` | Proveedores |
+| `purchasing` | `/api/v1/purchase-orders` | Órdenes de compra, confirmación, recepción y cancelación |
+| `payroll-periods` | `/api/v1/payroll-periods` | Períodos de planilla |
+| `payroll-runs` | `/api/v1/payroll-runs` | Corridas de planilla y exportaciones |
+| `aguinaldo` | `/api/v1/aguinaldo` | Corridas de aguinaldo |
+| `vacation-balances` | `/api/v1/vacation-balances` | Saldos de vacaciones |
+| `leave-types` | `/api/v1/leave-types` | Tipos de permisos |
+| `leave-requests` | `/api/v1/leave-requests` | Solicitudes de permisos y aprobación/rechazo |
+| `employee-terminations` | `/api/v1/employee-terminations` | Liquidaciones y estados asociados |
+| `fiscal` | `/api/v1/fiscal` | Libros de IVA y consulta DTE |
+| `dashboard` | `/api/v1/dashboard` | Resumen de dashboard |
+| `holidays` | `/api/v1/holidays` | Feriados |
+
+`shop-payments` no tiene un router independiente: su controlador se monta como `POST /api/v1/shop/orders/:id/pay` dentro de `shop-orders.routes.ts`.
+
+### Rutas de planilla montadas
+
+Las rutas de planilla se montan con estos prefijos exactos en `src/app.ts`:
+
+| Método | Ruta |
+|---|---|
+| `GET` | `/api/v1/payroll-periods/` |
+| `GET` | `/api/v1/payroll-periods/:id` |
+| `POST` | `/api/v1/payroll-periods/` |
+| `PATCH` | `/api/v1/payroll-periods/:id` |
+| `POST` | `/api/v1/payroll-periods/:id/close` |
+| `POST` | `/api/v1/payroll-periods/:id/reopen` |
+| `GET` | `/api/v1/payroll-runs/` |
+| `GET` | `/api/v1/payroll-runs/:id` |
+| `GET` | `/api/v1/payroll-runs/:id/export/excel` |
+| `GET` | `/api/v1/payroll-runs/:id/export/receipts-pdf` |
+| `GET` | `/api/v1/payroll-runs/:id/export/planilla-unica` |
+| `POST` | `/api/v1/payroll-runs/` |
+| `PATCH` | `/api/v1/payroll-runs/details/:id` |
+| `POST` | `/api/v1/payroll-runs/:id/approve` |
+| `POST` | `/api/v1/payroll-runs/:id/pay` |
+| `POST` | `/api/v1/payroll-runs/:id/void` |
+| `DELETE` | `/api/v1/payroll-runs/:id` |
 
 > **IVA (`Settings.IvaPercentage`) de solo lectura:** el checkout de la tienda y el POS calculan el IVA con la constante de código `IVA_RATE_EL_SALVADOR` (13 %, `src/shared/tax.ts`). Por eso `PATCH /api/v1/settings/IvaPercentage` solo acepta `13` y cualquier otro valor responde `400` con un mensaje explícito. Tasa y redondeo **a verificar con contador** antes de producción.
 
@@ -323,29 +353,32 @@ ferreteria_backend/
 ├── prisma/
 │   ├── schema.prisma             # ✅ Fuente de verdad v3.0
 │   ├── seed.ts                   # ✅ Seeds idempotentes (+ WebUser admin)
-│   └── migrations/               # (pendiente al congelar schema)
+│   └── migrations/               # Historial versionado del esquema
 ├── database/
 │   ├── init.sql                  # Bootstrap Docker
 │   └── README.md
-└── src/                          # ✅ Fase 8 (base)
-    ├── server.ts
-    ├── app.ts
-    ├── modules/
-    │   ├── auth/
-    │   ├── employees/
-    │   ├── banks/
-    │   ├── document-types/
-    │   ├── catalogs/
-    │   ├── customers/
-    │   ├── products/
-    │   ├── payroll-runs/         # Fase 10 ← erp-core-api
-    │   ├── inventory/            # Fase 9
-    │   ├── purchasing/           # Fase 9b
-    │   ├── fiscal/
-    │   └── dashboard/
-    ├── middleware/
-    ├── lib/
-    └── shared/
+├── src/                          # API Express y 30 montajes de router
+│   ├── server.ts
+│   ├── app.ts
+│   ├── modules/
+│   │   ├── auth/
+│   │   ├── employees/
+│   │   ├── banks/
+│   │   ├── document-types/
+│   │   ├── catalogs/
+│   │   ├── customers/
+│   │   ├── products/
+│   │   ├── payroll-periods/      # Períodos de planilla
+│   │   ├── payroll-runs/         # Corridas de planilla y exportes
+│   │   ├── inventory/            # Fase 9
+│   │   ├── purchasing/           # Fase 9b
+│   │   ├── fiscal/
+│   │   └── dashboard/
+│   ├── middleware/
+│   ├── lib/
+│   └── shared/
+├── tests/                        # 36 archivos de pruebas Vitest
+└── tests-db/                     # 8 archivos de pruebas con BD
 ```
 
 ---
@@ -423,6 +456,8 @@ npm run docker:reset   # Reiniciar BD local (borra datos)
 | `db:studio` | Abre Prisma Studio |
 | `db:format` | Formatea `schema.prisma` |
 | `db:validate` | Valida schema |
+| `test` | Ejecuta la suite Vitest de `tests/` |
+| `test:db` | Ejecuta la suite Vitest de `tests-db/` con `vitest.db.config.ts` |
 | `docker:up` | `docker compose up -d` |
 | `docker:down` | Detiene contenedor |
 | `docker:reset` | Elimina volumen y recrea BD |
@@ -435,16 +470,18 @@ ExcelJS usa el override de `uuid` 11.1.1 definido en `package.json` para mantene
 
 Alineado a `FERRETERIA_PLAN_FINALIZACION_APP.md`:
 
+El estado siguiente refleja la presencia comprobable de schema, servicios y rutas en este repositorio; no implica que las reglas legales o funcionales estén validadas para producción.
+
 | Fase | Alcance backend | Estado |
 |---|---|---|
-| **0** | Schema Prisma v3.0, seeds, Docker | ✅ En progreso |
-| **0b** | Esquema `hr` Periodo+Corrida, bancos, ISR, documentos | ✅ Schema listo |
-| **8** | Scaffold Express, auth JWT, CRUD empleados/clientes/catálogo | ✅ En curso |
-| **9** | Inventario administrativo, ajustes, alertas | ✅ Base |
-| **9b** | Proveedores, OC, Kardex valorado, costo promedio | 🔲 Pendiente |
-| **10** | Planilla quincenal, Excel/PDF, aguinaldo, vacaciones, liquidaciones | 🔲 Pendiente |
-| **10d** | Libros de IVA desde DTEs y compras | 🔲 Pendiente |
-| **11** | Endpoints dashboard BI (`/sales`, `/inventory`, `/purchases`, `/hr`) | 🔲 Pendiente |
+| **0** | Schema Prisma v3.0, seeds, Docker | ✅ Implementado |
+| **0b** | Esquema `hr` Periodo+Corrida, bancos, ISR, documentos | ✅ Presente en schema y migraciones |
+| **8** | Scaffold Express, auth JWT, CRUD empleados/clientes/catálogo | ✅ Rutas montadas |
+| **9** | Inventario administrativo, ajustes, alertas | ✅ Rutas montadas |
+| **9b** | Proveedores, OC, Kardex valorado, costo promedio | ✅ Rutas y servicios presentes |
+| **10** | Planilla, Excel/PDF, aguinaldo, vacaciones, liquidaciones | 🟡 Rutas, cálculo y exportes presentes |
+| **10d** | Libros de IVA desde DTEs y compras | ✅ Rutas fiscales presentes |
+| **11** | Dashboard BI | 🟡 Está montado `GET /api/v1/dashboard/summary` |
 
 ---
 
