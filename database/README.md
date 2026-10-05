@@ -8,12 +8,15 @@ El historial `prisma/migrations` es la fuente de verdad. `database/init.sql` sol
 
 ```bash
 cd ferreteria_backend
-docker compose up -d
 cp .env.example .env
+# Reemplace CAMBIAR_PASSWORD_LOCAL en POSTGRES_PASSWORD y DATABASE_URL por una contraseña local propia.
+docker compose up -d
 npm install
 npm run db:migrate:deploy
 npm run db:seed
 ```
+
+Por defecto, el puerto de PostgreSQL se publica solo en `127.0.0.1`. Para publicarlo en otra interfaz, defina `POSTGRES_BIND` en `.env` antes de ejecutar `docker compose up -d`.
 
 ## Archivos en esta carpeta
 
