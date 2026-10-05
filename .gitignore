@@ -60,3 +60,23 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 .DS_Store
+
+# Sistema operativo y editores (configuración compartida de VS Code permitida)
+[Dd]esktop.ini
+.vs/
+*.user
+*.suo
+
+# Logs, temporales y respaldos
+*.tmp
+*.bak
+*.orig
+*.rej
+
+# Volcados y respaldos de base de datos (nunca se versionan)
+*.dump
+*.backup
+
+# Resultados de pruebas y caché del compilador SWC
+TestResults/
+.swc/
