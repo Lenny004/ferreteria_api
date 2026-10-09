@@ -8,8 +8,8 @@ import { jsonSuccess } from "../../shared/api-response.js";
 import { parseUuidParam } from "../../shared/validation.js";
 import { suppliersService } from "./suppliers.service.js";
 
-const listQuerySchema = z.object({
-  q: z.string().optional(),
+export const listQuerySchema = z.object({
+  q: z.string().trim().max(100).optional(),
   take: z.coerce.number().int().positive().max(200).optional(),
   skip: z.coerce.number().int().nonnegative().optional(),
   activeOnly: z
@@ -23,7 +23,7 @@ const listQuerySchema = z.object({
     .transform((v) => (v === undefined ? undefined : v === "true")),
 });
 
-const createSchema = z.object({
+export const createSchema = z.object({
   name: z.string().min(1).max(200),
   tradeName: z.string().max(200).nullable().optional(),
   nit: z.string().max(20).nullable().optional(),
@@ -39,7 +39,7 @@ const createSchema = z.object({
   notes: z.string().nullable().optional(),
 });
 
-const updateSchema = createSchema.partial().extend({
+export const updateSchema = createSchema.partial().extend({
   isActive: z.boolean().optional(),
 });
 

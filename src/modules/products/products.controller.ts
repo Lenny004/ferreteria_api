@@ -5,14 +5,14 @@ import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
 import { productsService } from "./products.service.js";
-import { parseUuidParam } from "../../shared/validation.js";
+import { decimalNumber, parseUuidParam } from "../../shared/validation.js";
 
-const listQuerySchema = z.object({
-  q: z.string().optional(),
+export const listQuerySchema = z.object({
+  q: z.string().trim().max(100).optional(),
   familyId: z.string().uuid().optional(),
   subfamilyId: z.string().uuid().optional(),
-  minPrice: z.coerce.number().nonnegative().optional(),
-  maxPrice: z.coerce.number().nonnegative().optional(),
+  minPrice: decimalNumber(12, 2, true).optional(),
+  maxPrice: decimalNumber(12, 2, true).optional(),
   inStock: z
     .enum(["true", "false", "1", "0"])
     .optional()
@@ -21,23 +21,23 @@ const listQuerySchema = z.object({
   skip: z.coerce.number().int().nonnegative().optional(),
 });
 
-const createSchema = z.object({
+export const createSchema = z.object({
   code: z.string().min(1).max(30),
   description: z.string().min(1).max(200),
   familyId: z.string().uuid(),
   measurementTypeId: z.string().uuid(),
   subfamilyId: z.string().uuid().nullable().optional(),
   barcode: z.string().max(50).nullable().optional(),
-  salePrice: z.coerce.number().nonnegative().optional(),
-  costPrice: z.coerce.number().nonnegative().optional(),
-  currentStock: z.coerce.number().nonnegative().optional(),
-  minStock: z.coerce.number().nonnegative().optional(),
+  salePrice: decimalNumber(12, 2, true).optional(),
+  costPrice: decimalNumber(12, 4, true).optional(),
+  currentStock: decimalNumber(12, 3, true).optional(),
+  minStock: decimalNumber(12, 3, true).optional(),
   notes: z.string().nullable().optional(),
 });
 
-const updateSchema = createSchema.partial().extend({
-  maxStock: z.coerce.number().nonnegative().nullable().optional(),
-  reorderPoint: z.coerce.number().nonnegative().nullable().optional(),
+export const updateSchema = createSchema.partial().extend({
+  maxStock: decimalNumber(12, 3, true).nullable().optional(),
+  reorderPoint: decimalNumber(12, 3, true).nullable().optional(),
   isActive: z.boolean().optional(),
 });
 

@@ -8,7 +8,7 @@ import { jsonSuccess } from "../../shared/api-response.js";
 import { parseParams } from "../../shared/validation.js";
 import { settingsService } from "./settings.service.js";
 
-const upsertSchema = z.object({
+export const upsertSchema = z.object({
   value: z.string().min(1),
   description: z.string().max(300).nullable().optional(),
   isPublic: z.boolean().optional(),
@@ -36,7 +36,7 @@ export async function getPublic(req: Request, res: Response, next: NextFunction)
 /** GET `/` — todos los ajustes (admin). */
 export async function listAdmin(req: Request, res: Response, next: NextFunction) {
   try {
-    const q = z.string().optional().parse(req.query.q);
+    const q = z.string().trim().max(100).optional().parse(req.query.q);
     jsonSuccess(res, await settingsService.listAdmin({ q }));
   } catch (err) {
     next(err);
