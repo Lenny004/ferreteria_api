@@ -33,6 +33,24 @@ export interface DecimalNumberOptions {
 }
 
 /**
+ * Calcula los límites de una columna decimal desde su representación decimal exacta.
+ *
+ * @param precision - Cantidad total de dígitos permitidos.
+ * @param scale - Cantidad de dígitos permitidos después del separador decimal.
+ * @returns Paso mínimo y máximo representables por el validador.
+ */
+function decimalBounds(precision: number, scale: number): { step: number; max: number } {
+  const integerDigits = precision - scale;
+  const fractionalPart = "9".repeat(scale);
+  const maxText = `${"9".repeat(integerDigits)}${scale > 0 ? `.${fractionalPart}` : ""}`;
+
+  return {
+    step: Number(`1e-${scale}`),
+    max: Number(maxText),
+  };
+}
+
+/**
  * Crea un validador numérico compatible con una columna Prisma `Decimal(p, s)`.
  * Rechaza valores fuera del rango representable y con más posiciones decimales
  * que la escala declarada en la base de datos.
@@ -50,8 +68,8 @@ export function decimalNumber(
   const normalizedOptions = typeof options === "boolean"
     ? { nonnegative: options, coerce: true }
     : { nonnegative: options.nonnegative ?? false, coerce: options.coerce ?? true };
-  const step = 10 ** -scale;
-  const max = 10 ** (precision - scale) - step;
+  const { step, max } = decimalBounds(precision, scale);
+  const stepScale = decimalPlaces(step);
   const base = z
     .number({ invalid_type_error: "Ingrese un número válido.", required_error: "Ingrese un número válido." })
     .finite("Ingrese un número válido.");
@@ -60,7 +78,7 @@ export function decimalNumber(
     : base.min(-max, `El valor no puede ser menor que ${(-max).toFixed(scale)}.`);
   const schema = bounded
     .max(max, `El valor no puede superar ${max.toFixed(scale)}.`)
-    .refine((value) => decimalPlaces(value) <= scale, `El valor admite como máximo ${scale} decimales.`);
+    .refine((value) => decimalPlaces(value) <= stepScale, `El valor admite como máximo ${scale} decimales.`);
 
   return z.preprocess(
     (input) => {

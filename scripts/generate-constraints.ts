@@ -40,6 +40,24 @@ const MODEL_MAP_PATTERN = /@@map\("([^"]+)"\)/;
 const SCHEMA_PATTERN = /@@schema\("([^"]+)"\)/;
 
 /**
+ * Obtiene los límites decimales sin depender de potencias negativas de punto flotante.
+ *
+ * @param precision - Cantidad total de dígitos permitidos.
+ * @param scale - Cantidad de dígitos permitidos después del separador decimal.
+ * @returns Paso mínimo y máximo representables por la columna decimal.
+ */
+function decimalBounds(precision: number, scale: number): { step: number; max: number } {
+  const integerDigits = precision - scale;
+  const fractionalPart = "9".repeat(scale);
+  const maxText = `${"9".repeat(integerDigits)}${scale > 0 ? `.${fractionalPart}` : ""}`;
+
+  return {
+    step: Number(`1e-${scale}`),
+    max: Number(maxText),
+  };
+}
+
+/**
  * Convierte el schema Prisma en restricciones deterministas sin conectarse a la BD.
  *
  * @param source - Contenido completo de `prisma/schema.prisma`.
@@ -87,6 +105,7 @@ export function parsePrismaConstraints(source: string): ConstraintsDocument {
     const isArray = Boolean(listMarker);
     const varChar = attributes.match(DB_VAR_CHAR_PATTERN);
     const decimal = attributes.match(DB_DECIMAL_PATTERN);
+    const decimalLimits = decimal ? decimalBounds(Number(decimal[1]), Number(decimal[2])) : undefined;
     const field: FieldConstraint = {
       type: `${baseType}${isArray ? "[]" : ""}`,
       ...(attributes.match(MAP_PATTERN)?.[1] ? { map: attributes.match(MAP_PATTERN)?.[1] } : {}),
@@ -95,8 +114,8 @@ export function parsePrismaConstraints(source: string): ConstraintsDocument {
         ? {
             precision: Number(decimal[1]),
             scale: Number(decimal[2]),
-            step: 10 ** -Number(decimal[2]),
-            max: 10 ** (Number(decimal[1]) - Number(decimal[2])) - 10 ** -Number(decimal[2]),
+            step: decimalLimits.step,
+            max: decimalLimits.max,
           }
         : {}),
       required: !nullable && !hasDefault && !isArray,

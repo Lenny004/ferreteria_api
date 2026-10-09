@@ -24,6 +24,20 @@ describe("contrato de restricciones Prisma", () => {
     expect(varCharFields.length).toBe((source.match(/@db\.VarChar\(/g) ?? []).length);
     for (const [, field] of varCharFields) expect(field.maxLength).toBeGreaterThan(0);
   });
+
+  it("calcula paso y máximo decimal con valores exactos", () => {
+    const document = parsePrismaConstraints(`
+model DecimalSamples {
+  decimal10x4 Decimal @db.Decimal(10, 4)
+  decimal5x1 Decimal @db.Decimal(5, 1)
+  decimal12x2 Decimal @db.Decimal(12, 2)
+}
+`);
+
+    expect(document.models.DecimalSamples.fields.decimal10x4).toMatchObject({ step: 0.0001, max: 999999.9999 });
+    expect(document.models.DecimalSamples.fields.decimal5x1).toMatchObject({ step: 0.1, max: 9999.9 });
+    expect(document.models.DecimalSamples.fields.decimal12x2).toMatchObject({ step: 0.01, max: 9999999999.99 });
+  });
 });
 
 describe("variables opcionales de entorno", () => {

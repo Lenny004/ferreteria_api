@@ -56,5 +56,27 @@ describe("validación compartida", () => {
       expect(decimalNumber(10, 8).safeParse(1.5e-7).success).toBe(true);
       expect(decimalNumber(10, 7).safeParse(1.5e-7).success).toBe(false);
     });
+
+    it("mantiene paso, máximo y mensajes decimales exactos", () => {
+      const cases = [
+        { precision: 10, scale: 4, step: 0.0001, max: 999999.9999 },
+        { precision: 5, scale: 1, step: 0.1, max: 9999.9 },
+        { precision: 12, scale: 2, step: 0.01, max: 9999999999.99 },
+      ];
+
+      for (const { precision, scale, step, max } of cases) {
+        const schema = decimalNumber(precision, scale);
+
+        expect(schema.safeParse(step).success).toBe(true);
+        expect(schema.safeParse(max).success).toBe(true);
+        const overflow = schema.safeParse(max + step);
+        expect(overflow.success).toBe(false);
+        if (!overflow.success) {
+          expect(overflow.error.issues.map((issue) => issue.message)).toContain(
+            `El valor no puede superar ${max.toFixed(scale)}.`,
+          );
+        }
+      }
+    });
   });
 });
