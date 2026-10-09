@@ -12,8 +12,8 @@ export const listQuerySchema = z.object({
   q: z.string().trim().max(100).optional(),
   familyId: z.string().uuid().optional(),
   subfamilyId: z.string().uuid().optional(),
-  minPrice: decimalNumber(12, 2, true).optional(),
-  maxPrice: decimalNumber(12, 2, true).optional(),
+  minPrice: decimalNumber(12, 2, { nonnegative: true, round: true }).optional(),
+  maxPrice: decimalNumber(12, 2, { nonnegative: true, round: true }).optional(),
   inStock: z
     .enum(["true", "false", "1", "0"])
     .optional()
