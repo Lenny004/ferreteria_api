@@ -5,25 +5,25 @@
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
-import { parseUuidParam } from "../../shared/validation.js";
+import { decimalNumber, parseUuidParam } from "../../shared/validation.js";
 import { ADMIN_MOVEMENT_TYPES, inventoryService } from "./inventory.service.js";
 
-const listQuerySchema = z.object({
+export const listQuerySchema = z.object({
   productId: z.string().uuid().optional(),
-  movementType: z.string().optional(),
+  movementType: z.string().max(30).optional(),
   take: z.coerce.number().int().positive().max(200).optional(),
   skip: z.coerce.number().int().nonnegative().optional(),
 });
 
-const createSchema = z.object({
+export const createSchema = z.object({
   productId: z.string().uuid(),
   movementType: z.enum(ADMIN_MOVEMENT_TYPES),
-  quantity: z.coerce.number().positive(),
-  unitCost: z.coerce.number().nonnegative().optional(),
+  quantity: decimalNumber(12, 3).refine((value) => value > 0, "La cantidad debe ser positiva."),
+  unitCost: decimalNumber(12, 4, true).optional(),
   reason: z.string().max(300).nullable().optional(),
 });
 
-const alertsQuerySchema = z.object({
+export const alertsQuerySchema = z.object({
   resolved: z
     .enum(["true", "false"])
     .optional()
@@ -32,17 +32,17 @@ const alertsQuerySchema = z.object({
   skip: z.coerce.number().int().nonnegative().optional(),
 });
 
-const importSchema = z.object({
+export const importLineSchema = z.object({
+  productCode: z.string().min(1).max(30),
+  movementType: z.enum(ADMIN_MOVEMENT_TYPES),
+  quantity: decimalNumber(12, 3).refine((value) => value > 0, "La cantidad debe ser positiva."),
+  unitCost: decimalNumber(12, 4, true).optional(),
+  reason: z.string().max(300).optional(),
+});
+
+export const importSchema = z.object({
   lines: z
-    .array(
-      z.object({
-        productCode: z.string().min(1).max(30),
-        movementType: z.enum(ADMIN_MOVEMENT_TYPES),
-        quantity: z.coerce.number().positive(),
-        unitCost: z.coerce.number().nonnegative().optional(),
-        reason: z.string().max(300).optional(),
-      }),
-    )
+    .array(importLineSchema)
     .min(1)
     .max(500),
 });
@@ -115,7 +115,7 @@ export async function valuation(req: Request, res: Response, next: NextFunction)
   try {
     const query = z
       .object({
-        q: z.string().optional(),
+        q: z.string().trim().max(100).optional(),
         take: z.coerce.number().int().positive().max(500).optional(),
         skip: z.coerce.number().int().nonnegative().optional(),
       })

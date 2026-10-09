@@ -8,12 +8,12 @@ import { jsonSuccess } from "../../shared/api-response.js";
 
 const IdParamSchema = z.object({ id: z.string().uuid("ID inválido") });
 
-const ListSchema = z.object({
+export const ListSchema = z.object({
   take: z.coerce.number().int().positive().max(200).optional(),
   skip: z.coerce.number().int().nonnegative().optional(),
 });
 
-const GenerateSchema = z.object({
+export const GenerateSchema = z.object({
   year: z.coerce.number().int().min(2020).max(2100),
   paymentDate: z.coerce.date(),
   notes: z.string().trim().max(2000).optional(),

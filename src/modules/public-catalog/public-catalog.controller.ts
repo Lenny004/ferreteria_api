@@ -5,15 +5,15 @@
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
-import { parseUuidParam } from "../../shared/validation.js";
+import { decimalNumber, parseUuidParam } from "../../shared/validation.js";
 import { publicCatalogService } from "./public-catalog.service.js";
 
-const listQuerySchema = z.object({
-  q: z.string().optional(),
+export const listQuerySchema = z.object({
+  q: z.string().trim().max(100).optional(),
   familyId: z.string().uuid().optional(),
   subfamilyId: z.string().uuid().optional(),
-  minPrice: z.coerce.number().nonnegative().optional(),
-  maxPrice: z.coerce.number().nonnegative().optional(),
+  minPrice: decimalNumber(12, 2, true).optional(),
+  maxPrice: decimalNumber(12, 2, true).optional(),
   inStock: z
     .enum(["true", "false", "1", "0"])
     .optional()

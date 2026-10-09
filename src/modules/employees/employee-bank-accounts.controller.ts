@@ -18,14 +18,14 @@ const idParamSchema = z.object({
   id: z.string().uuid(),
 });
 
-const createSchema = z.object({
+export const createSchema = z.object({
   bankId: z.string().uuid(),
   accountType: z.enum(ACCOUNT_TYPES),
   accountNumber: z.string().min(1).max(40),
   isPrimary: z.boolean().optional(),
 });
 
-const updateSchema = createSchema.partial().extend({
+export const updateSchema = createSchema.partial().extend({
   isActive: z.boolean().optional(),
 });
 

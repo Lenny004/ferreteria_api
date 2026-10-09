@@ -110,6 +110,15 @@ La caja **no** consume esta API en el MVP inicial; escribe directamente en Postg
 - Convención SQL: esquemas separados, tablas **PascalCase** entre comillas (`hr."Employees"`).
 - Prisma mapea con `@@map`, `@@schema` y `@db.Uuid`.
 
+### Restricciones para consumidores
+
+`generated/constraints.json` es el contrato versionado de límites físicos derivados de
+`prisma/schema.prisma`. Incluye, por modelo y campo Prisma, `map`, `schema`, `type`,
+`maxLength`, `precision`, `scale`, `step`, `max`, `required`, `nullable`, `unique` y
+`hasDefault` cuando aplican. En `Decimal(p,s)`, `step = 10^-s` y `max = 10^(p-s) - step`.
+Adminweb debe copiar este archivo al preparar sus formularios de A2. Regenerar con
+`npm run constraints:generate` después de cambiar el schema.
+
 ### Desarrollo local rápido
 
 ```bash
@@ -456,6 +465,7 @@ npm run docker:reset   # Reiniciar BD local (borra datos)
 | `db:studio` | Abre Prisma Studio |
 | `db:format` | Formatea `schema.prisma` |
 | `db:validate` | Valida schema |
+| `constraints:generate` | Regenera `generated/constraints.json` desde Prisma |
 | `test` | Ejecuta la suite Vitest de `tests/` |
 | `test:db` | Ejecuta la suite Vitest de `tests-db/` con `vitest.db.config.ts` |
 | `docker:up` | `docker compose up -d` |

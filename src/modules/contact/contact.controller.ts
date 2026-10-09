@@ -8,7 +8,7 @@ import { jsonSuccess } from "../../shared/api-response.js";
 import { contactService } from "./contact.service.js";
 import { parseUuidParam } from "../../shared/validation.js";
 
-const createSchema = z.object({
+export const createSchema = z.object({
   name: z.string().min(2).max(150),
   email: z.string().email().max(150),
   phone: z.string().max(30).nullable().optional(),
@@ -16,14 +16,14 @@ const createSchema = z.object({
   message: z.string().min(10).max(4000),
 });
 
-const listQuerySchema = z.object({
+export const listQuerySchema = z.object({
   status: z.enum(["NEW", "READ", "ARCHIVED"]).optional(),
-  q: z.string().optional(),
+  q: z.string().trim().max(100).optional(),
   take: z.coerce.number().int().positive().max(200).optional(),
   skip: z.coerce.number().int().nonnegative().optional(),
 });
 
-const updateSchema = z.object({
+export const updateSchema = z.object({
   status: z.enum(["NEW", "READ", "ARCHIVED"]).optional(),
   adminNotes: z.string().max(2000).nullable().optional(),
 });

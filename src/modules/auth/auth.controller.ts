@@ -15,10 +15,10 @@ import {
 } from "../../shared/cookies.js";
 import { signAccessToken, verifyAccessToken } from "../../shared/jwt.js";
 
-const loginSchema = z.object({
-  login: z.string().min(1).optional(),
-  email: z.string().min(1).optional(),
-  username: z.string().min(1).optional(),
+export const loginSchema = z.object({
+  login: z.string().min(1).max(100).optional(),
+  email: z.string().min(1).max(100).optional(),
+  username: z.string().min(1).max(50).optional(),
   password: z.string().min(1),
 }).strict().refine((data) => Boolean(data.login ?? data.email ?? data.username), {
   message: "Se requiere login, email o username",
@@ -98,7 +98,7 @@ export async function me(req: Request, res: Response, next: NextFunction) {
   }
 }
 
-const changePasswordSchema = z.object({
+export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
   newPassword: z.string().min(8).max(128),
 }).strict();
@@ -124,11 +124,11 @@ export async function changePassword(req: Request, res: Response, next: NextFunc
   }
 }
 
-const forgotPasswordSchema = z.object({
-  email: z.string().email(),
+export const forgotPasswordSchema = z.object({
+  email: z.string().email().max(100),
 }).strict();
 
-const resetPasswordSchema = z.object({
+export const resetPasswordSchema = z.object({
   token: z.string().min(20),
   newPassword: z.string().min(8).max(128),
 }).strict();

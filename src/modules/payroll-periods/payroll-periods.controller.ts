@@ -11,7 +11,7 @@ import { PAYROLL_PERIOD_TYPES } from "./payroll-periods.service.js";
 import { ConflictError } from "../../shared/errors.js";
 import { jsonSuccess } from "../../shared/api-response.js";
 
-const ListQuerySchema = z.object({
+export const ListQuerySchema = z.object({
   periodType: z.enum(PAYROLL_PERIOD_TYPES).optional(),
   year: z.coerce.number().int().min(1990).max(2100).optional(),
   isClosed: z.preprocess((v) => {
@@ -22,7 +22,7 @@ const ListQuerySchema = z.object({
   }, z.boolean().optional()),
 });
 
-const PeriodFieldsSchema = z.object({
+export const PeriodFieldsSchema = z.object({
   name: z.string().trim().min(1, "Nombre: obligatorio").max(100, "Nombre: máximo 100 caracteres"),
   periodType: z.enum(PAYROLL_PERIOD_TYPES),
   startDate: z.coerce.date(),
@@ -30,7 +30,7 @@ const PeriodFieldsSchema = z.object({
   paymentDate: z.coerce.date(),
 });
 
-const PeriodBodySchema = PeriodFieldsSchema.refine((d) => d.startDate <= d.endDate, {
+export const PeriodBodySchema = PeriodFieldsSchema.refine((d) => d.startDate <= d.endDate, {
   message: "La fecha de inicio no puede ser posterior a la fecha de fin.",
   path: ["endDate"],
 }).refine((d) => d.paymentDate >= d.startDate, {
@@ -38,7 +38,7 @@ const PeriodBodySchema = PeriodFieldsSchema.refine((d) => d.startDate <= d.endDa
   path: ["paymentDate"],
 });
 
-const UpdatePeriodSchema = PeriodFieldsSchema.partial().refine((obj) => Object.keys(obj).length > 0, {
+export const UpdatePeriodSchema = PeriodFieldsSchema.partial().refine((obj) => Object.keys(obj).length > 0, {
   message: "Debes enviar al menos un campo para actualizar.",
 });
 
