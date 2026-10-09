@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { listQuerySchema as publicCatalogListQuerySchema } from "../src/modules/public-catalog/public-catalog.controller.js";
 import { decimalNumber, parsePaginationQuery, parseUuidParam } from "../src/shared/validation.js";
 
 describe("validación compartida", () => {
@@ -77,6 +78,13 @@ describe("validación compartida", () => {
           );
         }
       }
+    });
+
+    it("redondea filtros públicos a la escala monetaria y conserva sus rechazos", () => {
+      expect(publicCatalogListQuerySchema.parse({ minPrice: "10.999" }).minPrice).toBe(11);
+      expect(publicCatalogListQuerySchema.parse({ maxPrice: "10.004" }).maxPrice).toBe(10);
+      expect(publicCatalogListQuerySchema.safeParse({ minPrice: "abc" }).success).toBe(false);
+      expect(publicCatalogListQuerySchema.safeParse({ maxPrice: "-0.01" }).success).toBe(false);
     });
   });
 });
