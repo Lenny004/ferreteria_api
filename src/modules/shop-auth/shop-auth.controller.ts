@@ -15,33 +15,33 @@ import {
 } from "../../shared/cookies.js";
 import { signAccessToken, verifyAccessToken } from "../../shared/jwt.js";
 
-const registerSchema = z.object({
+export const registerSchema = z.object({
   email: z.string().email().max(150),
   password: z.string().min(8).max(128),
   fullName: z.string().min(2).max(200),
   phone: z.string().max(30).nullable().optional(),
 }).strict();
 
-const loginSchema = z.object({
-  email: z.string().email(),
+export const loginSchema = z.object({
+  email: z.string().email().max(150),
   password: z.string().min(1),
 }).strict();
 
-const profileSchema = z.object({
+export const profileSchema = z.object({
   fullName: z.string().min(2).max(200).optional(),
   phone: z.string().max(30).nullable().optional(),
 }).strict();
 
-const changePasswordSchema = z.object({
+export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
   newPassword: z.string().min(8).max(128),
 }).strict();
 
-const forgotSchema = z.object({
-  email: z.string().email(),
+export const forgotSchema = z.object({
+  email: z.string().email().max(150),
 }).strict();
 
-const resetSchema = z.object({
+export const resetSchema = z.object({
   token: z.string().min(20),
   newPassword: z.string().min(8).max(128),
 }).strict();

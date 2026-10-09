@@ -4,12 +4,15 @@
 
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
+import { decimalNumber } from "../../shared/validation.js";
 import { jsonSuccess, jsonSuccessEmpty } from "../../shared/api-response.js";
 import { cartService } from "./cart.service.js";
 
-const upsertSchema = z.object({
+export const upsertSchema = z.object({
   productId: z.string().uuid(),
-  quantity: z.coerce.number().positive().max(9999),
+  quantity: decimalNumber(12, 3, true)
+    .refine((value) => value > 0, "La cantidad debe ser positiva.")
+    .refine((value) => value <= 9999, "La cantidad no puede superar 9999."),
 });
 
 /** GET `/` — lista ítems y subtotal del carrito. */

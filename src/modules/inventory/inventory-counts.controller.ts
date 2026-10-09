@@ -2,17 +2,18 @@
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
+import { decimalNumber } from "../../shared/validation.js";
 import { inventoryCountsService } from "./inventory-counts.service.js";
 
 const idParamSchema = z.object({ id: z.string().uuid() });
 
-const listSchema = z.object({
+export const listSchema = z.object({
   status: z.enum(["ABIERTO", "APLICADO", "CANCELADO"]).optional(),
   take: z.coerce.number().int().finite().positive().max(200).optional(),
   skip: z.coerce.number().int().finite().nonnegative().optional(),
 });
 
-const createSchema = z
+export const createSchema = z
   .object({
     name: z.string().trim().min(1).max(120),
     familyId: z.string().uuid().optional(),
@@ -26,28 +27,28 @@ const createSchema = z
     "Debe indicar familyId, subfamilyId o productIds",
   );
 
-const captureSchema = z.object({
+export const captureLineSchema = z.object({
+  productId: z.string().uuid(),
+  countedQuantity: decimalNumber(12, 3, { coerce: false }),
+  notes: z.string().max(300).nullable().optional(),
+});
+
+export const captureSchema = z.object({
   items: z
-    .array(
-      z.object({
-        productId: z.string().uuid(),
-        countedQuantity: z.number().finite(),
-        notes: z.string().max(300).nullable().optional(),
-      }),
-    )
+    .array(captureLineSchema)
     .min(1)
     .max(500),
 });
 
-const linesQuerySchema = z.object({
+export const linesQuerySchema = z.object({
   q: z.string().trim().max(200).optional(),
   filter: z.enum(["all", "pending", "counted", "variance"]).optional(),
   take: z.coerce.number().int().finite().positive().max(200).optional(),
   skip: z.coerce.number().int().finite().nonnegative().optional(),
 });
 
-const applySchema = z.object({ confirm: z.literal(true) });
-const cancelSchema = z.object({ reason: z.string().trim().max(300).nullable().optional() });
+export const applySchema = z.object({ confirm: z.literal(true) });
+export const cancelSchema = z.object({ reason: z.string().trim().max(300).nullable().optional() });
 
 /** GET `/` — Lista conteos con avance y diferencias. */
 export async function list(req: Request, res: Response, next: NextFunction): Promise<void> {

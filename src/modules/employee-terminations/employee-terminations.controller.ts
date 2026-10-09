@@ -6,23 +6,24 @@ import { z } from "zod";
 import * as service from "./employee-terminations.service.js";
 import { TERMINATION_REASONS } from "./employee-terminations.constants.js";
 import { jsonSuccess } from "../../shared/api-response.js";
+import { decimalNumber } from "../../shared/validation.js";
 
 const IdParamSchema = z.object({ id: z.string().uuid("ID inválido") });
 
-const CreateSchema = z.object({
+export const CreateSchema = z.object({
   employeeId: z.string().uuid("Empleado inválido"),
   terminationDate: z.coerce.date(),
   reason: z.enum(TERMINATION_REASONS),
-  pendingSalary: z.coerce.number().min(0).optional(),
+  pendingSalary: decimalNumber(10, 2, true).optional(),
   settlementNotes: z.string().trim().max(2000).optional(),
   documentUrl: z.string().trim().max(500).optional(),
 });
 
-const VoidSchema = z.object({
+export const VoidSchema = z.object({
   reason: z.string().trim().min(1, "Debes indicar un motivo de anulación").max(500),
 });
 
-const ListSchema = z.object({
+export const ListSchema = z.object({
   take: z.coerce.number().int().positive().max(200).optional(),
   skip: z.coerce.number().int().nonnegative().optional(),
 });

@@ -5,12 +5,13 @@ import type { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import * as service from "./leave-requests.service.js";
 import { jsonSuccess } from "../../shared/api-response.js";
+import { decimalNumber } from "../../shared/validation.js";
 
 const IdParamSchema = z.object({ id: z.string().uuid("ID inválido") });
 
 const STATUSES = ["PENDIENTE", "APROBADA", "RECHAZADA", "EN_GOCE"] as const;
 
-const ListSchema = z.object({
+export const ListSchema = z.object({
   employeeId: z.string().uuid().optional(),
   status: z.enum(STATUSES).optional(),
   leaveTypeId: z.string().uuid().optional(),
@@ -20,19 +21,19 @@ const ListSchema = z.object({
   skip: z.coerce.number().int().nonnegative().optional(),
 });
 
-const CreateSchema = z.object({
+export const CreateSchema = z.object({
   employeeId: z.string().uuid("Empleado inválido"),
   leaveTypeId: z.string().uuid("Tipo de ausencia inválido"),
   startDate: z.coerce.date(),
   endDate: z.coerce.date(),
-  daysRequested: z.coerce.number().positive(),
+  daysRequested: decimalNumber(5, 1, true).refine((value) => value > 0, "Los días solicitados deben ser positivos."),
   halfDay: z.boolean().optional(),
   halfDayPeriod: z.string().max(10).optional(),
   reason: z.string().trim().max(2000).optional(),
   documentUrl: z.string().trim().max(500).optional(),
 });
 
-const ReviewSchema = z.object({
+export const ReviewSchema = z.object({
   reviewNotes: z.string().trim().max(2000).optional(),
 });
 

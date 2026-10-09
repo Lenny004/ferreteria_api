@@ -8,7 +8,7 @@ import { jsonSuccess } from "../../shared/api-response.js";
 import { parseUuidParam } from "../../shared/validation.js";
 import { shopPaymentsService } from "./shop-payments.service.js";
 
-const payOrderSchema = z.object({
+export const payOrderSchema = z.object({
   method: z.enum(["EFECTIVO_RETIRO", "TRANSFERENCIA", "TARJETA", "CONTRA_ENTREGA"]).optional(),
   providerRef: z.string().max(100).optional(),
   notes: z.string().max(300).optional(),

@@ -8,7 +8,7 @@ import { jsonSuccess } from "../../shared/api-response.js";
 import { documentTypesService } from "./document-types.service.js";
 import { parseUuidParam } from "../../shared/validation.js";
 
-const createSchema = z.object({
+export const createSchema = z.object({
   name: z.string().min(1).max(150),
   description: z.string().nullable().optional(),
   isMandatory: z.boolean().optional(),
@@ -16,7 +16,7 @@ const createSchema = z.object({
   hasExpiry: z.boolean().optional(),
 });
 
-const updateSchema = createSchema.partial().extend({
+export const updateSchema = createSchema.partial().extend({
   isActive: z.boolean().optional(),
 });
 

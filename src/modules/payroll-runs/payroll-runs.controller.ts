@@ -3,11 +3,12 @@ import { z } from "zod";
 import * as service from "./payroll-runs.service.js";
 import * as exportsService from "./payroll-exports.service.js";
 import { jsonSuccess } from "../../shared/api-response.js";
+import { decimalNumber } from "../../shared/validation.js";
 import { PAYROLL_RUN_STATUSES } from "./payroll.constants.js";
 
 const IdParamSchema = z.object({ id: z.string().uuid("ID inválido") });
 
-const ListRunsSchema = z.object({
+export const ListRunsSchema = z.object({
   periodId: z.string().uuid().optional(),
   status: z.enum(PAYROLL_RUN_STATUSES).optional(),
   createdBy: z.string().uuid().optional(),
@@ -15,23 +16,23 @@ const ListRunsSchema = z.object({
   skip: z.coerce.number().int().nonnegative().optional(),
 });
 
-const GenerateRunSchema = z.object({
+export const GenerateRunSchema = z.object({
   periodId: z.string().uuid("ID del período inválido"),
-  name: z.string().trim().max(150).optional(),
+  name: z.string().trim().min(1, "El nombre de la corrida es obligatorio.").max(150),
   notes: z.string().trim().max(2000).optional(),
   employeeIds: z.array(z.string().uuid()).optional(),
 });
 
-const UpdateDetailSchema = z
+export const UpdateDetailSchema = z
   .object({
-    overtimeHoursDiurnal: z.coerce.number().min(0).optional(),
-    overtimeHoursNocturnal: z.coerce.number().min(0).optional(),
-    overtimeHoursHoliday: z.coerce.number().min(0).optional(),
-    bonuses: z.coerce.number().min(0).optional(),
-    viaticos: z.coerce.number().min(0).optional(),
-    loanDeduction: z.coerce.number().min(0).optional(),
-    otherDeductions: z.coerce.number().min(0).optional(),
-    otherEarnings: z.coerce.number().min(0).optional(),
+    overtimeHoursDiurnal: decimalNumber(5, 2, true).optional(),
+    overtimeHoursNocturnal: decimalNumber(5, 2, true).optional(),
+    overtimeHoursHoliday: decimalNumber(5, 2, true).optional(),
+    bonuses: decimalNumber(10, 2, true).optional(),
+    viaticos: decimalNumber(10, 2, true).optional(),
+    loanDeduction: decimalNumber(10, 2, true).optional(),
+    otherDeductions: decimalNumber(10, 2, true).optional(),
+    otherEarnings: decimalNumber(10, 2, true).optional(),
     paymentChannel: z.enum(["DEPOSITO_BANCARIO", "EFECTIVO", "CHEQUE"]).optional(),
     notes: z.string().trim().max(2000).optional(),
   })

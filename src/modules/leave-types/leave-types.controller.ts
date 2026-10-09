@@ -6,6 +6,7 @@ import { z } from "zod";
 import * as service from "./leave-types.service.js";
 import { LEAVE_CATEGORIES } from "./leave-types.service.js";
 import { jsonSuccess } from "../../shared/api-response.js";
+import { decimalNumber } from "../../shared/validation.js";
 
 const IdParamSchema = z.object({ id: z.string().uuid("ID inválido") });
 
@@ -18,10 +19,10 @@ const ListSchema = z.object({
   }, z.boolean().optional()),
 });
 
-const LeaveTypeBodySchema = z.object({
+export const LeaveTypeBodySchema = z.object({
   name: z.string().trim().min(1, "Nombre: obligatorio").max(100, "Nombre: máximo 100 caracteres"),
   category: z.enum(LEAVE_CATEGORIES),
-  maxDaysPerYear: z.coerce.number().min(0).nullable().optional(),
+  maxDaysPerYear: decimalNumber(5, 1, true).nullable().optional(),
   requiresDocument: z.boolean().optional(),
   isPaid: z.boolean().optional(),
   affectsVacationAccrual: z.boolean().optional(),

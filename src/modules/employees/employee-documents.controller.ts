@@ -24,7 +24,7 @@ const dateSchema = z
   .nullable()
   .optional();
 
-const createSchema = z.object({
+export const createSchema = z.object({
   docTypeId: z.string().uuid(),
   status: z.enum(DOCUMENT_STATUSES).optional(),
   fileUrl: z.string().max(500).nullable().optional(),
@@ -34,7 +34,7 @@ const createSchema = z.object({
   notes: z.string().nullable().optional(),
 });
 
-const updateSchema = createSchema.partial().extend({
+export const updateSchema = createSchema.partial().extend({
   isActive: z.boolean().optional(),
 });
 
