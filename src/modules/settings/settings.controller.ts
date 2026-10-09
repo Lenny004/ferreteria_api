@@ -14,6 +14,9 @@ export const upsertSchema = z.object({
   isPublic: z.boolean().optional(),
 });
 
+/** Valida la clave de un ajuste usado en los parámetros de ruta. */
+export const keyParamSchema = z.object({ key: z.string().min(1).max(100) }).strict();
+
 /** GET `/` — ajustes públicos (sin auth). */
 export async function listPublic(_req: Request, res: Response, next: NextFunction) {
   try {
@@ -26,7 +29,7 @@ export async function listPublic(_req: Request, res: Response, next: NextFunctio
 /** GET `/:key` — un ajuste público por clave. */
 export async function getPublic(req: Request, res: Response, next: NextFunction) {
   try {
-    const { key } = parseParams(z.object({ key: z.string().min(1).max(100) }).strict(), req.params);
+    const { key } = parseParams(keyParamSchema, req.params);
     jsonSuccess(res, await settingsService.getPublicByKey(key));
   } catch (err) {
     next(err);
@@ -47,7 +50,7 @@ export async function listAdmin(req: Request, res: Response, next: NextFunction)
 export async function upsert(req: Request, res: Response, next: NextFunction) {
   try {
     const body = upsertSchema.parse(req.body);
-    const { key } = parseParams(z.object({ key: z.string().min(1).max(100) }).strict(), req.params);
+    const { key } = parseParams(keyParamSchema, req.params);
     jsonSuccess(res, await settingsService.upsert(key, body));
   } catch (err) {
     next(err);

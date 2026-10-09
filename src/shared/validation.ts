@@ -30,6 +30,8 @@ export interface DecimalNumberOptions {
   nonnegative?: boolean;
   /** Convierte strings numéricas no vacías antes de validar el número resultante. */
   coerce?: boolean;
+  /** Redondea el valor a la escala antes de validar sus posiciones decimales. */
+  round?: boolean;
 }
 
 /**
@@ -52,12 +54,12 @@ function decimalBounds(precision: number, scale: number): { step: number; max: n
 
 /**
  * Crea un validador numérico compatible con una columna Prisma `Decimal(p, s)`.
- * Rechaza valores fuera del rango representable y con más posiciones decimales
- * que la escala declarada en la base de datos.
+ * Rechaza valores fuera del rango representable y, salvo que se configure
+ * `round`, valores con más posiciones decimales que la escala de la base de datos.
  *
  * @param precision - Cantidad total de dígitos permitidos.
  * @param scale - Cantidad de dígitos permitidos después del separador decimal.
- * @param options - Configura el signo permitido y la coerción de strings numéricas.
+ * @param options - Configura el signo permitido, la coerción y el redondeo a escala.
  * @returns Esquema Zod para entradas numéricas.
  */
 export function decimalNumber(
@@ -66,8 +68,12 @@ export function decimalNumber(
   options: DecimalNumberOptions | boolean = {},
 ): z.ZodType<number, z.ZodTypeDef, unknown> {
   const normalizedOptions = typeof options === "boolean"
-    ? { nonnegative: options, coerce: true }
-    : { nonnegative: options.nonnegative ?? false, coerce: options.coerce ?? true };
+    ? { nonnegative: options, coerce: true, round: false }
+    : {
+      nonnegative: options.nonnegative ?? false,
+      coerce: options.coerce ?? true,
+      round: options.round ?? false,
+    };
   const { step, max } = decimalBounds(precision, scale);
   const stepScale = decimalPlaces(step);
   const base = z
@@ -82,11 +88,14 @@ export function decimalNumber(
 
   return z.preprocess(
     (input) => {
-      if (!normalizedOptions.coerce || typeof input !== "string") return input;
-      const trimmed = input.trim();
-      if (trimmed === "") return input;
-      const parsed = Number(trimmed);
-      return Number.isFinite(parsed) ? parsed : input;
+      const candidate = typeof input === "string" && normalizedOptions.coerce
+        ? input.trim() === "" ? input : Number(input.trim())
+        : input;
+      if (typeof candidate !== "number" || !Number.isFinite(candidate) || !normalizedOptions.round) {
+        return candidate;
+      }
+      const factor = 10 ** scale;
+      return Math.round((candidate + Number.EPSILON) * factor) / factor;
     },
     schema,
   );
