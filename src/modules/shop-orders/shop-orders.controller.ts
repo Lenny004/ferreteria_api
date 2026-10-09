@@ -10,7 +10,7 @@ import { shopOrdersService } from "./shop-orders.service.js";
 
 const paymentStatusValues = ["PENDIENTE", "EN_VERIFICACION", "PAGADO", "REEMBOLSADO", "FALLIDO"] as const;
 
-const checkoutSchema = z
+export const checkoutSchema = z
   .object({
     customerNotes: z.string().max(2000).nullable().optional(),
     deliveryType: z.enum(["RETIRO_TIENDA", "ENVIO"]).optional(),
@@ -30,17 +30,17 @@ const checkoutSchema = z
     }
   });
 
-const adminListSchema = z.object({
+export const adminListSchema = z.object({
   status: z
     .enum(["PENDIENTE", "CONFIRMADA", "LISTA_RETIRO", "ENTREGADA", "CANCELADA"])
     .optional(),
   paymentStatus: z.enum(paymentStatusValues).optional(),
-  q: z.string().optional(),
+  q: z.string().trim().max(100).optional(),
   take: z.coerce.number().int().positive().max(200).optional(),
   skip: z.coerce.number().int().nonnegative().optional(),
 });
 
-const adminUpdateSchema = z.object({
+export const adminUpdateSchema = z.object({
   status: z
     .enum(["PENDIENTE", "CONFIRMADA", "LISTA_RETIRO", "ENTREGADA", "CANCELADA"])
     .optional(),
@@ -48,7 +48,7 @@ const adminUpdateSchema = z.object({
   cancellationNote: z.string().trim().min(1).max(300).optional(),
 });
 
-const transferReferenceSchema = z.object({
+export const transferReferenceSchema = z.object({
   reference: z.string().trim().min(3).max(100),
   notes: z.string().trim().max(300).optional(),
 }).strict();

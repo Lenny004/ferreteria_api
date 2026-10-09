@@ -7,8 +7,8 @@ import { jsonSuccess } from "../../shared/api-response.js";
 import { customersService } from "./customers.service.js";
 import { parseUuidParam } from "../../shared/validation.js";
 
-const listQuerySchema = z.object({
-  q: z.string().optional(),
+export const listQuerySchema = z.object({
+  q: z.string().trim().max(100).optional(),
   customerType: z.enum(["CF", "CCF"]).optional(),
   hasNit: z
     .enum(["true", "false"])
@@ -22,7 +22,7 @@ const listQuerySchema = z.object({
   skip: z.coerce.number().int().nonnegative().optional(),
 });
 
-const createSchema = z.object({
+export const createSchema = z.object({
   name: z.string().min(1).max(200),
   customerType: z.enum(["CF", "CCF"]).optional(),
   dui: z.string().max(15).nullable().optional(),
@@ -35,7 +35,7 @@ const createSchema = z.object({
   department: z.string().max(50).nullable().optional(),
 });
 
-const updateSchema = createSchema.partial().extend({
+export const updateSchema = createSchema.partial().extend({
   isActive: z.boolean().optional(),
 });
 

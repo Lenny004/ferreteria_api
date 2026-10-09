@@ -6,26 +6,28 @@ import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
 import { UnauthorizedError } from "../../shared/errors.js";
-import { parseUuidParam } from "../../shared/validation.js";
+import { decimalNumber, parseUuidParam } from "../../shared/validation.js";
 import { purchaseOrdersService } from "./purchase-orders.service.js";
 
-const lineSchema = z.object({
+export const lineSchema = z.object({
   productId: z.string().uuid(),
-  quantity: z.coerce.number().positive(),
-  unitCost: z.coerce.number().positive(),
-  taxRate: z.coerce.number().min(0).max(1).optional(),
+  quantity: decimalNumber(12, 3, true).refine((value) => value > 0, "La cantidad debe ser positiva."),
+  unitCost: decimalNumber(12, 4, true).refine((value) => value > 0, "El costo debe ser positivo."),
+  taxRate: decimalNumber(5, 4, true)
+    .refine((value) => value <= 1, "La tasa de impuesto no puede superar 1.")
+    .optional(),
   notes: z.string().max(300).nullable().optional(),
 });
 
-const listQuerySchema = z.object({
-  q: z.string().optional(),
+export const listQuerySchema = z.object({
+  q: z.string().trim().max(100).optional(),
   status: z.enum(["BORRADOR", "CONFIRMADA", "RECIBIDA", "CANCELADA"]).optional(),
   supplierId: z.string().uuid().optional(),
   take: z.coerce.number().int().positive().max(200).optional(),
   skip: z.coerce.number().int().nonnegative().optional(),
 });
 
-const createSchema = z.object({
+export const createSchema = z.object({
   supplierId: z.string().uuid(),
   supplierDocNumber: z.string().max(50).nullable().optional(),
   supplierDocType: z.enum(["CCF", "FAC", "OTRO"]).nullable().optional(),
@@ -34,7 +36,7 @@ const createSchema = z.object({
   lines: z.array(lineSchema).min(1).max(200),
 });
 
-const updateSchema = z.object({
+export const updateSchema = z.object({
   supplierId: z.string().uuid().optional(),
   supplierDocNumber: z.string().max(50).nullable().optional(),
   supplierDocType: z.enum(["CCF", "FAC", "OTRO"]).nullable().optional(),
@@ -43,7 +45,7 @@ const updateSchema = z.object({
   lines: z.array(lineSchema).min(1).max(200).optional(),
 });
 
-const receiveSchema = z.object({
+export const receiveSchema = z.object({
   supplierDocNumber: z.string().max(50).nullable().optional(),
   supplierDocType: z.enum(["CCF", "FAC", "OTRO"]).nullable().optional(),
 });

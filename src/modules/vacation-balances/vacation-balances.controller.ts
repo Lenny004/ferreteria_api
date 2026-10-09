@@ -5,22 +5,23 @@ import type { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import * as service from "./vacation-balances.service.js";
 import { jsonSuccess } from "../../shared/api-response.js";
+import { decimalNumber } from "../../shared/validation.js";
 
 const IdParamSchema = z.object({ id: z.string().uuid("ID inválido") });
 
-const ListSchema = z.object({
+export const ListSchema = z.object({
   year: z.coerce.number().int().min(2020).max(2100).optional(),
   employeeId: z.string().uuid().optional(),
 });
 
-const EnsureSchema = z.object({
+export const EnsureSchema = z.object({
   year: z.coerce.number().int().min(2020).max(2100),
 });
 
-const UpdateSchema = z
+export const UpdateSchema = z
   .object({
-    daysEarned: z.coerce.number().min(0).optional(),
-    daysTaken: z.coerce.number().min(0).optional(),
+    daysEarned: decimalNumber(5, 1, true).optional(),
+    daysTaken: decimalNumber(5, 1, true).optional(),
     lastVacationDate: z.coerce.date().optional().nullable(),
     nextVacationDue: z.coerce.date().optional().nullable(),
   })

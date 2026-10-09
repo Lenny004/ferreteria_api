@@ -5,10 +5,10 @@ import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { jsonSuccess } from "../../shared/api-response.js";
 import { employeesService } from "./employees.service.js";
-import { parseUuidParam } from "../../shared/validation.js";
+import { decimalNumber, parseUuidParam } from "../../shared/validation.js";
 
-const listQuerySchema = z.object({
-  q: z.string().optional(),
+export const listQuerySchema = z.object({
+  q: z.string().trim().max(100).optional(),
   isActive: z
     .enum(["true", "false"])
     .optional()
@@ -26,11 +26,11 @@ const listQuerySchema = z.object({
   skip: z.coerce.number().int().nonnegative().optional(),
 });
 
-const createSchema = z.object({
+export const createSchema = z.object({
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
   hireDate: z.string().min(1),
-  baseSalary: z.coerce.number().nonnegative(),
+  baseSalary: decimalNumber(10, 2, true),
   dui: z.string().max(15).nullable().optional(),
   nit: z.string().max(20).nullable().optional(),
   positionId: z.string().uuid().nullable().optional(),
@@ -41,10 +41,11 @@ const createSchema = z.object({
   email: z.string().email().max(100).nullable().optional(),
   canSell: z.boolean().optional(),
   canCashier: z.boolean().optional(),
-  pin: z.string().min(4).max(12).nullable().optional(),
+  // El POS solo admite PIN numérico de cuatro dígitos.
+  pin: z.string().regex(/^\d{4}$/, "El PIN debe tener exactamente 4 dígitos numéricos.").nullable().optional(),
 });
 
-const updateSchema = createSchema.partial().extend({
+export const updateSchema = createSchema.partial().extend({
   isActive: z.boolean().optional(),
 });
 

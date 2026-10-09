@@ -16,7 +16,10 @@ const envSchema = z.object({
       return false;
     }
   }), "CORS_ORIGIN debe ser una lista de orígenes HTTP(S) válidos"),
-  COOKIE_DOMAIN: z.string().min(1).optional(),
+  COOKIE_DOMAIN: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().min(1).optional(),
+  ),
   COOKIE_SECURE: booleanFromString.default("false"),
   COOKIE_SAMESITE: sameSite,
   EXPOSE_RESET_TOKEN_IN_DEV: booleanFromString.default("false"),
