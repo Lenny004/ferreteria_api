@@ -8,24 +8,24 @@ import { jsonSuccess } from "../../shared/api-response.js";
 import { parseUuidParam } from "../../shared/validation.js";
 import { IVA_REPORT_TYPES, fiscalService } from "./fiscal.service.js";
 
-const listQuerySchema = z.object({
+export const listQuerySchema = z.object({
   year: z.coerce.number().int().min(2020).max(2100).optional(),
   month: z.coerce.number().int().min(1).max(12).optional(),
 });
 
-const periodParamsSchema = z.object({
+export const periodParamsSchema = z.object({
   year: z.coerce.number().int().min(2020).max(2100),
   month: z.coerce.number().int().min(1).max(12),
 });
 
-const generateSchema = z.object({
+export const generateSchema = z.object({
   year: z.coerce.number().int().min(2020).max(2100),
   month: z.coerce.number().int().min(1).max(12),
   reportType: z.enum(IVA_REPORT_TYPES),
   notes: z.string().max(2000).optional(),
 });
 
-const dteQuerySchema = z.object({
+export const dteQuerySchema = z.object({
   year: z.coerce.number().int().min(2020).max(2100).optional(),
   month: z.coerce.number().int().min(1).max(12).optional(),
   dteType: z.string().max(5).optional(),
