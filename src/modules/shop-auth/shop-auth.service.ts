@@ -11,6 +11,8 @@ import { signAccessToken } from "../../shared/jwt.js";
 import { buildPasswordResetEmail, sendMail } from "../../lib/mail.js";
 import { getEnv } from "../../config/env.js";
 
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
+
 const shopCustomerSelect = {
   id: true,
   email: true,
@@ -199,25 +201,26 @@ export const shopAuthService = {
 
     const rawToken = crypto.randomBytes(32).toString("hex");
     const tokenHash = hashToken(rawToken);
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS);
 
-    await prisma.passwordResetToken.updateMany({
-      where: {
-        audience: "SHOP_CUSTOMER",
-        userId: customer.id,
-        usedAt: null,
-      },
-      data: { usedAt: new Date() },
-    });
-
-    await prisma.passwordResetToken.create({
-      data: {
-        audience: "SHOP_CUSTOMER",
-        userId: customer.id,
-        tokenHash,
-        expiresAt,
-      },
-    });
+    await prisma.$transaction([
+      prisma.passwordResetToken.updateMany({
+        where: {
+          audience: "SHOP_CUSTOMER",
+          userId: customer.id,
+          usedAt: null,
+        },
+        data: { usedAt: new Date() },
+      }),
+      prisma.passwordResetToken.create({
+        data: {
+          audience: "SHOP_CUSTOMER",
+          userId: customer.id,
+          tokenHash,
+          expiresAt,
+        },
+      }),
+    ]);
 
     const mail = buildPasswordResetEmail({
       audience: "SHOP_CUSTOMER",

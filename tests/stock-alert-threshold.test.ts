@@ -147,7 +147,7 @@ describe("umbral de alertas de stock", () => {
       details: [{ productId, quantity: new Prisma.Decimal("1"), unitCost: new Prisma.Decimal("4") }],
     };
     prismaMock.purchaseOrder.findUnique.mockResolvedValue(order);
-    prismaMock.product.findUnique.mockResolvedValue({ ...product, currentStock: new Prisma.Decimal("1") });
+    prismaMock.product.findMany.mockResolvedValue([{ ...product, currentStock: new Prisma.Decimal("1") }]);
 
     await purchaseOrdersService.receive("purchase-order-1", {}, "b50e8400-e29b-41d4-a716-446655440000");
 
