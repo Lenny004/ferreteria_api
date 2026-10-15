@@ -6,10 +6,17 @@
  */
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
-import { BadRequestError, NotFoundError } from "../../shared/errors.js";
-import { DEFAULT_VACATION_DAYS } from "../vacation-balances/vacation-balances.service.js";
+import { BadRequestError, ConflictError, NotFoundError } from "../../shared/errors.js";
+import { incrementDaysTaken } from "../vacation-balances/vacation-balances.service.js";
 
-export type LeaveRequestStatus = "PENDIENTE" | "APROBADA" | "RECHAZADA" | "EN_GOCE";
+export const LEAVE_REQUEST_STATUS = {
+  PENDING: "PENDIENTE",
+  APPROVED: "APROBADA",
+  REJECTED: "RECHAZADA",
+  IN_PROGRESS: "EN_GOCE",
+} as const;
+
+export type LeaveRequestStatus = (typeof LEAVE_REQUEST_STATUS)[keyof typeof LEAVE_REQUEST_STATUS];
 
 function toNum(d: Prisma.Decimal | number | string | null | undefined): number {
   if (d == null) return 0;
@@ -170,7 +177,7 @@ export async function createLeaveRequest(input: {
       halfDayPeriod: input.halfDayPeriod ?? null,
       reason: input.reason ?? null,
       documentUrl: input.documentUrl ?? null,
-      status: "PENDIENTE",
+      status: LEAVE_REQUEST_STATUS.PENDING,
     },
     include: requestInclude,
   });
@@ -183,50 +190,46 @@ export async function createLeaveRequest(input: {
  * `daysTaken` del saldo del año de `startDate`.
  *
  * @throws {NotFoundError} Si no existe.
- * @throws {BadRequestError} Si el estado actual no admite aprobación.
+ * @throws {ConflictError} Si otra operación ya cambió el estado de la solicitud.
  */
 export async function approveLeaveRequest(
   id: string,
   reviewedBy: string,
   reviewNotes?: string,
 ): Promise<LeaveRequestDto> {
-  const existing = await prisma.leaveRequest.findUnique({
-    where: { id },
-    include: requestInclude,
-  });
-  if (!existing) throw new NotFoundError("Solicitud de ausencia no encontrada.");
-  if (existing.status !== "PENDIENTE") {
-    throw new BadRequestError("Solo se pueden aprobar solicitudes en estado PENDIENTE.");
-  }
-
   const row = await prisma.$transaction(async (tx) => {
-    const approvedAt = new Date();
-    const approvedRow = await tx.leaveRequest.update({
+    const existing = await tx.leaveRequest.findUnique({
       where: { id },
+      include: requestInclude,
+    });
+    if (!existing) throw new NotFoundError("Solicitud de ausencia no encontrada.");
+
+    const approvedAt = new Date();
+    const transition = await tx.leaveRequest.updateMany({
+      where: { id, status: LEAVE_REQUEST_STATUS.PENDING },
       data: {
-        status: "APROBADA",
+        status: LEAVE_REQUEST_STATUS.APPROVED,
         reviewedBy,
         reviewedAt: approvedAt,
         reviewNotes: reviewNotes ?? null,
         approvedBy: reviewedBy,
         approvedAt,
       },
-      include: requestInclude,
     });
+    if (transition.count === 0) {
+      throw new ConflictError("La solicitud de ausencia ya no está pendiente y no puede aprobarse.");
+    }
 
     if (existing.leaveType.category === "VACACIONES") {
       const year = existing.startDate.getUTCFullYear();
-      await tx.vacationBalance.upsert({
-        where: { employeeId_year: { employeeId: existing.employeeId, year } },
-        create: {
-          employeeId: existing.employeeId,
-          year,
-          daysEarned: DEFAULT_VACATION_DAYS,
-          daysTaken: toNum(existing.daysRequested),
-        },
-        update: { daysTaken: { increment: toNum(existing.daysRequested) }, updatedAt: new Date() },
-      });
+      await incrementDaysTaken(existing.employeeId, year, toNum(existing.daysRequested), tx);
     }
+
+    const approvedRow = await tx.leaveRequest.findUnique({
+      where: { id },
+      include: requestInclude,
+    });
+    if (!approvedRow) throw new NotFoundError("Solicitud de ausencia no encontrada.");
 
     return approvedRow;
   });
@@ -247,14 +250,14 @@ export async function rejectLeaveRequest(
 ): Promise<LeaveRequestDto> {
   const existing = await prisma.leaveRequest.findUnique({ where: { id }, select: { status: true } });
   if (!existing) throw new NotFoundError("Solicitud de ausencia no encontrada.");
-  if (existing.status !== "PENDIENTE") {
+  if (existing.status !== LEAVE_REQUEST_STATUS.PENDING) {
     throw new BadRequestError("Solo se pueden rechazar solicitudes en estado PENDIENTE.");
   }
 
   const row = await prisma.leaveRequest.update({
     where: { id },
     data: {
-      status: "RECHAZADA",
+      status: LEAVE_REQUEST_STATUS.REJECTED,
       reviewedBy,
       reviewedAt: new Date(),
       reviewNotes: reviewNotes ?? null,
