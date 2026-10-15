@@ -462,9 +462,13 @@ export const purchaseOrdersService = {
       await lockProducts(tx, order.details.map((detail) => detail.productId));
 
       const receivedById = await resolveReceivingEmployeeId(tx, webUserId);
+      const products = await tx.product.findMany({
+        where: { id: { in: [...new Set(order.details.map((detail) => detail.productId))] } },
+      });
+      const productsById = new Map(products.map((product) => [product.id, product]));
 
       for (const detail of order.details) {
-        const product = await tx.product.findUnique({ where: { id: detail.productId } });
+        const product = productsById.get(detail.productId);
         if (!product || !product.isActive) {
           throw new NotFoundError(`Producto ${detail.productId} no encontrado o inactivo`);
         }
@@ -504,6 +508,8 @@ export const purchaseOrdersService = {
             updatedAt: new Date(),
           },
         });
+
+        productsById.set(product.id, { ...product, currentStock: stockAfter, costPrice: newCostPrice });
 
         await syncStockAlert(tx, product.id, stockAfter, new Prisma.Decimal(product.minStock));
       }

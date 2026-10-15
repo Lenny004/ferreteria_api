@@ -633,6 +633,8 @@ export async function deletePayrollRun(id: string): Promise<void> {
     throw new BadRequestError("Solo se pueden eliminar planillas en estado En revisión.");
   }
 
-  await prisma.payrollDetail.deleteMany({ where: { payrollRunId: id } });
-  await prisma.payrollRun.delete({ where: { id } });
+  await prisma.$transaction([
+    prisma.payrollDetail.deleteMany({ where: { payrollRunId: id } }),
+    prisma.payrollRun.delete({ where: { id } }),
+  ]);
 }
