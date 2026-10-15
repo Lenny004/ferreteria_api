@@ -106,6 +106,13 @@ describe("WebUser que recibe órdenes de compra", () => {
       supplierDocType: null,
       details: [{ productId, quantity: 1, unitCost: 2 }],
     });
+    prismaMock.product.findMany.mockResolvedValue([{
+      id: productId,
+      isActive: true,
+      currentStock: 0,
+      costPrice: 1,
+      minStock: 0,
+    }]);
     prismaMock.product.findUnique.mockResolvedValue({
       id: productId,
       isActive: true,

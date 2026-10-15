@@ -10,6 +10,9 @@ import { BadRequestError, NotFoundError } from "../../shared/errors.js";
 import { getMonthlyEquivalent, round2 } from "../payroll-runs/payroll.utils.js";
 import { calcAguinaldoDaysEntitled, calcIsrOnAguinaldo } from "./aguinaldo.constants.js";
 
+const DAYS_PER_YEAR = 365.25;
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+
 function toNum(d: Prisma.Decimal | number | string | null | undefined): number {
   if (d == null) return 0;
   if (typeof d === "object") return parseFloat(d.toString());
@@ -56,11 +59,32 @@ const runInclude = {
 type AguinaldoRunRow = Prisma.AguinaldoRunGetPayload<{ include: typeof runInclude }>;
 
 async function sumMoneyForRun(runId: string): Promise<{ totalGross: number; totalIsr: number }> {
-  const agg = await prisma.aguinaldoDetail.aggregate({
-    where: { aguinaldoRunId: runId },
+  const sums = await sumMoneyForRuns([runId]);
+  return sums.get(runId) ?? { totalGross: 0, totalIsr: 0 };
+}
+
+/**
+ * Agrega los importes de detalle de varias corridas en una sola consulta.
+ *
+ * @param runIds - Identificadores de las corridas que se mostrarán.
+ * @returns Totales bruto e ISR indexados por corrida.
+ */
+async function sumMoneyForRuns(
+  runIds: string[],
+): Promise<Map<string, { totalGross: number; totalIsr: number }>> {
+  if (runIds.length === 0) return new Map();
+
+  const aggregates = await prisma.aguinaldoDetail.groupBy({
+    by: ["aguinaldoRunId"],
+    where: { aguinaldoRunId: { in: runIds } },
     _sum: { grossAmount: true, isrRetained: true },
   });
-  return { totalGross: toNum(agg._sum.grossAmount), totalIsr: toNum(agg._sum.isrRetained) };
+  return new Map(
+    aggregates.map((aggregate) => [
+      aggregate.aguinaldoRunId,
+      { totalGross: toNum(aggregate._sum.grossAmount), totalIsr: toNum(aggregate._sum.isrRetained) },
+    ]),
+  );
 }
 
 function mapRunRow(row: AguinaldoRunRow, sums: { totalGross: number; totalIsr: number }): AguinaldoRunDto {
@@ -118,10 +142,8 @@ export async function listAguinaldoRuns(params?: {
     }),
     prisma.aguinaldoRun.count(),
   ]);
-  const items: AguinaldoRunDto[] = [];
-  for (const row of rows) {
-    items.push(mapRunRow(row, await sumMoneyForRun(row.id)));
-  }
+  const sumsByRun = await sumMoneyForRuns(rows.map((row) => row.id));
+  const items = rows.map((row) => mapRunRow(row, sumsByRun.get(row.id) ?? { totalGross: 0, totalIsr: 0 }));
   return { items, total, take, skip };
 }
 
@@ -190,7 +212,7 @@ export async function generateAguinaldo(input: {
     let totalAmount = 0;
     const details: Prisma.AguinaldoDetailCreateManyInput[] = employees.map((emp) => {
       const diffMs = referenceDate.getTime() - emp.hireDate.getTime();
-      const yearsOfService = round2(Math.max(0, diffMs / (1000 * 60 * 60 * 24 * 365.25)));
+      const yearsOfService = round2(Math.max(0, diffMs / (MILLISECONDS_PER_DAY * DAYS_PER_YEAR)));
       const daysEntitled = calcAguinaldoDaysEntitled(yearsOfService);
       const monthlySalary = getMonthlyEquivalent(toNum(emp.baseSalary), emp.salaryType);
       const dailySalary = round2(monthlySalary / 30);
