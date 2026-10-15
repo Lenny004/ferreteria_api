@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import jwt from "jsonwebtoken";
 import { signAccessToken, verifyAccessToken } from "../src/shared/jwt.js";
 import { createCsrfToken, isValidCsrfToken } from "../src/shared/cookies.js";
 import { requireRole } from "../src/middleware/require-role.js";
@@ -9,6 +10,11 @@ describe("seguridad compartida", () => {
   it("firma y verifica JWT con rol", () => {
     const token = signAccessToken({ userId, role: "ADMIN", tv: 0 });
     expect(verifyAccessToken(token)).toMatchObject({ userId, role: "ADMIN" });
+  });
+
+  it("rechaza tokens firmados sin las claims de sesión", () => {
+    const token = jwt.sign({ userId, role: "ADMIN" }, process.env.JWT_SECRET!);
+    expect(() => verifyAccessToken(token)).toThrow("Token inválido");
   });
 
   it("liga CSRF al usuario y rechaza otra sesión", () => {

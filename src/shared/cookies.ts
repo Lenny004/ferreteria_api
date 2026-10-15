@@ -53,7 +53,9 @@ export function isValidCsrfToken(
   sessionType: SessionType = "admin",
 ): boolean {
   if (!cookieValue || !headerValue || cookieValue.length !== headerValue.length) return false;
-  const [nonce, signature] = headerValue.split(".");
+  const parts = headerValue.split(".");
+  if (parts.length !== 2) return false;
+  const [nonce, signature] = parts;
   if (!nonce || !signature) return false;
   const expected = csrfSignature(nonce, userId, sessionType);
   return crypto.timingSafeEqual(Buffer.from(cookieValue), Buffer.from(headerValue)) &&
