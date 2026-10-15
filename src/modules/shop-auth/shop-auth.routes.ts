@@ -5,7 +5,12 @@
 
 import { Router } from "express";
 import { authenticateShop } from "../../middleware/authenticate-shop.js";
-import { forgotPasswordRateLimiter, loginRateLimiter } from "../../middleware/rate-limit.js";
+import {
+  changePasswordRateLimiter,
+  forgotPasswordRateLimiter,
+  loginRateLimiter,
+  resetPasswordRateLimiter,
+} from "../../middleware/rate-limit.js";
 import * as controller from "./shop-auth.controller.js";
 
 const router = Router();
@@ -13,14 +18,14 @@ const router = Router();
 router.post("/register", loginRateLimiter, controller.register);
 router.post("/login", loginRateLimiter, controller.login);
 router.post("/forgot-password", forgotPasswordRateLimiter, controller.forgotPassword);
-router.post("/reset-password", controller.resetPassword);
+router.post("/reset-password", resetPasswordRateLimiter, controller.resetPassword);
 // Estas rutas quedan bajo el limitador global montado en `/api/v1`.
 router.post("/logout", controller.logout);
 router.get("/csrf", authenticateShop, controller.csrf);
 
 router.get("/me", authenticateShop, controller.me);
 router.patch("/me", authenticateShop, controller.updateProfile);
-router.post("/change-password", authenticateShop, controller.changePassword);
+router.post("/change-password", authenticateShop, changePasswordRateLimiter, controller.changePassword);
 router.post("/complete-onboarding", authenticateShop, controller.completeOnboarding);
 
 export default router;
