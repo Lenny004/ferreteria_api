@@ -170,4 +170,22 @@ describe("sesión de tienda", () => {
     expect(invalid.status).toBe(200);
     expect(prismaMock.shopCustomer.updateMany).toHaveBeenCalledTimes(before);
   });
+
+  it("limita los intentos de recuperación de contraseña de tienda", async () => {
+    const { default: app } = await import("../src/app.js");
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const response = await request(app)
+        .post("/api/v1/shop/auth/reset-password")
+        .send({});
+      expect(response.status).toBe(400);
+    }
+
+    const limited = await request(app)
+      .post("/api/v1/shop/auth/reset-password")
+      .send({});
+
+    expect(limited.status).toBe(429);
+    expect(limited.body.error).toBe("RATE_LIMITED");
+  });
 });

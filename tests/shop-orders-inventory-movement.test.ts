@@ -23,7 +23,7 @@ const prismaMock = {
   setting: { findUnique: vi.fn() },
   shopCartItem: { findMany: vi.fn(), deleteMany: vi.fn() },
   shopOrder: { create: vi.fn() },
-  product: { findUnique: vi.fn(), update: vi.fn() },
+  product: { findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
   inventoryMovement: { create: vi.fn() },
   stockAlert: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
 };
@@ -38,6 +38,7 @@ describe("movimiento de inventario del checkout de tienda", () => {
     prismaMock.setting.findUnique.mockResolvedValue({ value: "13" });
     prismaMock.shopCartItem.findMany.mockResolvedValue([cartItem]);
     prismaMock.shopOrder.create.mockResolvedValue({ id: "order-1" });
+    prismaMock.product.findMany.mockResolvedValue([product]);
     prismaMock.product.findUnique.mockResolvedValue(product);
     prismaMock.product.update.mockResolvedValue(product);
     prismaMock.inventoryMovement.create.mockResolvedValue({ id: "movement-1" });
@@ -75,6 +76,10 @@ describe("movimiento de inventario del checkout de tienda", () => {
       ...product,
       currentStock: new Prisma.Decimal("1"),
     });
+    prismaMock.product.findMany.mockResolvedValueOnce([{
+      ...product,
+      currentStock: new Prisma.Decimal("1"),
+    }]);
 
     await expect(shopOrdersService.checkout(customerId)).rejects.toThrow(/Stock insuficiente/);
     expect(prismaMock.$transaction).toHaveBeenCalled();

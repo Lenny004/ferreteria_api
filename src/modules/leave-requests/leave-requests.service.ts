@@ -7,7 +7,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { BadRequestError, NotFoundError } from "../../shared/errors.js";
-import { incrementDaysTaken } from "../vacation-balances/vacation-balances.service.js";
+import { DEFAULT_VACATION_DAYS } from "../vacation-balances/vacation-balances.service.js";
 
 export type LeaveRequestStatus = "PENDIENTE" | "APROBADA" | "RECHAZADA" | "EN_GOCE";
 
@@ -199,23 +199,37 @@ export async function approveLeaveRequest(
     throw new BadRequestError("Solo se pueden aprobar solicitudes en estado PENDIENTE.");
   }
 
-  const row = await prisma.leaveRequest.update({
-    where: { id },
-    data: {
-      status: "APROBADA",
-      reviewedBy,
-      reviewedAt: new Date(),
-      reviewNotes: reviewNotes ?? null,
-      approvedBy: reviewedBy,
-      approvedAt: new Date(),
-    },
-    include: requestInclude,
-  });
+  const row = await prisma.$transaction(async (tx) => {
+    const approvedAt = new Date();
+    const approvedRow = await tx.leaveRequest.update({
+      where: { id },
+      data: {
+        status: "APROBADA",
+        reviewedBy,
+        reviewedAt: approvedAt,
+        reviewNotes: reviewNotes ?? null,
+        approvedBy: reviewedBy,
+        approvedAt,
+      },
+      include: requestInclude,
+    });
 
-  if (existing.leaveType.category === "VACACIONES") {
-    const year = existing.startDate.getUTCFullYear();
-    await incrementDaysTaken(existing.employeeId, year, toNum(existing.daysRequested));
-  }
+    if (existing.leaveType.category === "VACACIONES") {
+      const year = existing.startDate.getUTCFullYear();
+      await tx.vacationBalance.upsert({
+        where: { employeeId_year: { employeeId: existing.employeeId, year } },
+        create: {
+          employeeId: existing.employeeId,
+          year,
+          daysEarned: DEFAULT_VACATION_DAYS,
+          daysTaken: toNum(existing.daysRequested),
+        },
+        update: { daysTaken: { increment: toNum(existing.daysRequested) }, updatedAt: new Date() },
+      });
+    }
+
+    return approvedRow;
+  });
 
   return mapRow(row);
 }

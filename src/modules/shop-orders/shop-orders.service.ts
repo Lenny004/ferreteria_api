@@ -36,6 +36,14 @@ type RestockSummary = {
   weightedCost: Prisma.Decimal;
 };
 
+const ADMIN_ORDER_STATUSES = new Set([
+  "PENDIENTE",
+  "CONFIRMADA",
+  "LISTA_RETIRO",
+  "ENTREGADA",
+  "CANCELADA",
+]);
+
 /**
  * Agrega la línea de cancelación al historial administrativo del pedido.
  * La nota nueva se limita en el esquema HTTP; `AdminNotes` es `TEXT`, por lo
@@ -147,12 +155,14 @@ export const shopOrdersService = {
       const cart = await tx.shopCartItem.findMany({ where: { shopCustomerId } });
       if (cart.length === 0) throw new BadRequestError("El carrito está vacío");
 
-      await lockProducts(tx, cart.map((item) => item.productId));
-      const products = new Map<string, NonNullable<Awaited<ReturnType<typeof tx.product.findUnique>>>>();
-      for (const item of cart) {
-        const product = await tx.product.findUnique({ where: { id: item.productId } });
-        if (!product) throw new NotFoundError("Producto no encontrado durante checkout");
-        products.set(item.productId, product);
+      const productIds = [...new Set(cart.map((item) => item.productId))];
+      await lockProducts(tx, productIds);
+      const products = await tx.product.findMany({ where: { id: { in: productIds } } });
+      const productsById = new Map(products.map((product) => [product.id, product]));
+      for (const productId of productIds) {
+        if (!productsById.has(productId)) {
+          throw new NotFoundError("Producto no encontrado durante checkout");
+        }
       }
 
       const quantitiesByProduct = new Map<string, Prisma.Decimal>();
@@ -165,7 +175,7 @@ export const shopOrdersService = {
       }
 
       for (const [productId, quantity] of quantitiesByProduct) {
-        const product = products.get(productId)!;
+        const product = productsById.get(productId)!;
         if (!product.isActive) throw new BadRequestError(`Producto inactivo: ${product.code}`);
         if (new Prisma.Decimal(product.currentStock).lessThan(quantity)) {
           throw new BadRequestError(`Stock insuficiente para ${product.code} (disponible: ${product.currentStock})`);
@@ -174,7 +184,7 @@ export const shopOrdersService = {
 
       let subtotal = new Prisma.Decimal(0);
       const linesData = cart.map((item) => {
-        const product = products.get(item.productId)!;
+        const product = productsById.get(item.productId)!;
         const quantity = new Prisma.Decimal(item.quantity);
         const lineSubtotal = roundMoney(new Prisma.Decimal(product.salePrice).mul(quantity));
         subtotal = subtotal.add(lineSubtotal);
@@ -228,7 +238,7 @@ export const shopOrdersService = {
 
       for (const item of cart) {
         const qty = new Prisma.Decimal(item.quantity);
-        const product = products.get(item.productId)!;
+        const product = productsById.get(item.productId)!;
         const stockBefore = new Prisma.Decimal(product.currentStock);
         const delta = signedMovementDelta("SALIDA_VENTA", qty);
         const stockAfter = stockBefore.add(delta);
@@ -245,7 +255,7 @@ export const shopOrdersService = {
             updatedAt: new Date(),
           },
         });
-        products.set(product.id, { ...product, currentStock: stockAfter });
+        productsById.set(product.id, { ...product, currentStock: stockAfter });
         // `shopOrderId` vincula la salida al pedido para reponer exactamente lo vendido al cancelar.
         await tx.inventoryMovement.create({
           data: {
@@ -365,8 +375,7 @@ export const shopOrdersService = {
     orderId: string,
     data: Partial<{ status: string; adminNotes: string | null; cancellationNote: string }>,
   ) {
-    const allowed = ["PENDIENTE", "CONFIRMADA", "LISTA_RETIRO", "ENTREGADA", "CANCELADA"];
-    if (data.status && !allowed.includes(data.status)) {
+    if (data.status && !ADMIN_ORDER_STATUSES.has(data.status)) {
       throw new BadRequestError("Estado de pedido inválido");
     }
     return runWithTransactionRetry(async (tx) => {
