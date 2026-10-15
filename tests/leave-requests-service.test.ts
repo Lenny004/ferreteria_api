@@ -39,7 +39,7 @@ const prismaMock = {
 
 vi.mock("../src/lib/prisma.js", () => ({ prisma: prismaMock }));
 
-const { approveLeaveRequest } = await import("../src/modules/leave-requests/leave-requests.service.js");
+const { approveLeaveRequest, rejectLeaveRequest } = await import("../src/modules/leave-requests/leave-requests.service.js");
 
 describe("aprobación de solicitudes de vacaciones", () => {
   beforeEach(() => {
@@ -92,5 +92,53 @@ describe("aprobación de solicitudes de vacaciones", () => {
     expect((rejected as PromiseRejectedResult).reason.statusCode).toBe(409);
     expect(prismaMock.vacationBalance.upsert).toHaveBeenCalledTimes(1);
     expect(balanceDaysTaken).toBe(3);
+  });
+
+  it("serializa aprobar y rechazar: gana la aprobación y el rechazo falla con 409", async () => {
+    const results = await Promise.allSettled([
+      approveLeaveRequest(leaveRequestId, "web-user-1"),
+      rejectLeaveRequest(leaveRequestId, "web-user-2", "Documentación incompleta"),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find((result) => result.status === "rejected");
+    expect(rejected).toMatchObject({
+      status: "rejected",
+      reason: expect.any(ConflictError),
+    });
+    expect((rejected as PromiseRejectedResult).reason.statusCode).toBe(409);
+    expect(requestState.status).toBe("APROBADA");
+    expect(prismaMock.vacationBalance.upsert).toHaveBeenCalledTimes(1);
+    expect(balanceDaysTaken).toBe(3);
+  });
+
+  it("serializa rechazar y aprobar: gana el rechazo con 409 y no incrementa el saldo", async () => {
+    const results = await Promise.allSettled([
+      rejectLeaveRequest(leaveRequestId, "web-user-1", "Documentación incompleta"),
+      approveLeaveRequest(leaveRequestId, "web-user-2"),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find((result) => result.status === "rejected");
+    expect(rejected).toMatchObject({
+      status: "rejected",
+      reason: expect.any(ConflictError),
+    });
+    expect((rejected as PromiseRejectedResult).reason.statusCode).toBe(409);
+    expect(requestState.status).toBe("RECHAZADA");
+    expect(requestState.reviewedBy).toBe("web-user-1");
+    expect(requestState.reviewNotes).toBe("Documentación incompleta");
+    expect(prismaMock.vacationBalance.upsert).not.toHaveBeenCalled();
+    expect(balanceDaysTaken).toBe(0);
+  });
+
+  it("rechaza el doble rechazo con 409", async () => {
+    await rejectLeaveRequest(leaveRequestId, "web-user-1", "Documentación incompleta");
+
+    await expect(rejectLeaveRequest(leaveRequestId, "web-user-2", "Otro motivo"))
+      .rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining("ya no está pendiente") });
+    expect(requestState.status).toBe("RECHAZADA");
+    expect(requestState.reviewedBy).toBe("web-user-1");
+    expect(requestState.reviewNotes).toBe("Documentación incompleta");
   });
 });

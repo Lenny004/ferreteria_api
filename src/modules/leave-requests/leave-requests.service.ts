@@ -239,30 +239,42 @@ export async function approveLeaveRequest(
 
 /**
  * Rechaza una solicitud `PENDIENTE`.
+ * La transición de estado y la lectura de la fila actualizada se ejecutan dentro
+ * de una transacción para impedir que una aprobación concurrente sea sobrescrita.
  *
  * @throws {NotFoundError} Si no existe.
- * @throws {BadRequestError} Si el estado actual no admite rechazo.
+ * @throws {ConflictError} Si otra operación ya cambió el estado de la solicitud.
  */
 export async function rejectLeaveRequest(
   id: string,
   reviewedBy: string,
   reviewNotes?: string,
 ): Promise<LeaveRequestDto> {
-  const existing = await prisma.leaveRequest.findUnique({ where: { id }, select: { status: true } });
-  if (!existing) throw new NotFoundError("Solicitud de ausencia no encontrada.");
-  if (existing.status !== LEAVE_REQUEST_STATUS.PENDING) {
-    throw new BadRequestError("Solo se pueden rechazar solicitudes en estado PENDIENTE.");
-  }
+  const row = await prisma.$transaction(async (tx) => {
+    const existing = await tx.leaveRequest.findUnique({ where: { id }, include: requestInclude });
+    if (!existing) throw new NotFoundError("Solicitud de ausencia no encontrada.");
 
-  const row = await prisma.leaveRequest.update({
-    where: { id },
-    data: {
-      status: LEAVE_REQUEST_STATUS.REJECTED,
-      reviewedBy,
-      reviewedAt: new Date(),
-      reviewNotes: reviewNotes ?? null,
-    },
-    include: requestInclude,
+    const rejectedAt = new Date();
+    const transition = await tx.leaveRequest.updateMany({
+      where: { id, status: LEAVE_REQUEST_STATUS.PENDING },
+      data: {
+        status: LEAVE_REQUEST_STATUS.REJECTED,
+        reviewedBy,
+        reviewedAt: rejectedAt,
+        reviewNotes: reviewNotes ?? null,
+      },
+    });
+    if (transition.count === 0) {
+      throw new ConflictError("La solicitud de ausencia ya no está pendiente y no puede rechazarse.");
+    }
+
+    const rejectedRow = await tx.leaveRequest.findUnique({
+      where: { id },
+      include: requestInclude,
+    });
+    if (!rejectedRow) throw new NotFoundError("Solicitud de ausencia no encontrada.");
+
+    return rejectedRow;
   });
 
   return mapRow(row);
