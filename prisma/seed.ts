@@ -139,14 +139,15 @@ export function getAdminSeedConfig(env: NodeJS.ProcessEnv = process.env): AdminS
  * Las filas existentes se preservan para no pisar ajustes editados por usuarios.
  */
 async function seedReferenceData(): Promise<void> {
-  const saleUnitValues = Prisma.join(
-    SALE_UNITS.map((unit) => Prisma.sql`(${unit.code}, ${unit.name}, ${unit.abbreviation})`),
-  );
-  await prisma.$executeRaw(Prisma.sql`
+  await prisma.$transaction(async (tx) => {
+    const saleUnitValues = Prisma.join(
+      SALE_UNITS.map((unit) => Prisma.sql`(${unit.code}, ${unit.name}, ${unit.abbreviation})`),
+    );
+    await tx.$executeRaw(Prisma.sql`
     INSERT INTO public."SaleUnits" ("code", "name", "Abbreviation") VALUES ${saleUnitValues}
     ON CONFLICT ("code") DO NOTHING;
   `);
-  await prisma.$executeRaw(Prisma.sql`
+    await tx.$executeRaw(Prisma.sql`
     DO $$
     BEGIN
     INSERT INTO public."MeasurementTypes" (code, name, "UnitLabel", decimals) VALUES
@@ -191,6 +192,7 @@ async function seedReferenceData(): Promise<void> {
     ON CONFLICT (year, "PeriodType", "BracketFrom") DO NOTHING;
     END $$;
   `);
+  });
 }
 
 /**
@@ -255,15 +257,8 @@ function isUniqueViolation(error: unknown): boolean {
     || (typeof candidate.message === 'string' && /duplicate key|23505/i.test(candidate.message));
 }
 
-/**
- * Inserta o actualiza catálogos, empleados demo y settings del sistema.
- * Requiere la extensión pgcrypto para `crypt` / `gen_salt` en PinHash.
- */
-async function seedDemoData(): Promise<void> {
-  // pgcrypto habilita bcrypt (bf) para hashear PIN de Employee.
-  await prisma.$executeRaw(Prisma.sql`CREATE EXTENSION IF NOT EXISTS "pgcrypto"`);
-
-  await prisma.$executeRaw(Prisma.sql`
+/** SQL idempotente para catálogos, empleados demo y settings del sistema. */
+const DEMO_DATA_SQL = Prisma.sql`
     DO $$
     BEGIN
     -- MeasurementType: unidad de medida del Product (metros, piezas, kits, kg).
@@ -558,7 +553,16 @@ async function seedDemoData(): Promise<void> {
     WHERE e."Dui" = '00000001-0'
     ON CONFLICT ("Username") DO NOTHING;
     END $$;
-  `);
+  `;
+
+/**
+ * Inserta o actualiza los datos demo.
+ * Requiere la extensión pgcrypto para `crypt` / `gen_salt` en PinHash.
+ */
+async function seedDemoData(): Promise<void> {
+  // pgcrypto habilita bcrypt (bf) para hashear PIN de Employee.
+  await prisma.$executeRaw(Prisma.sql`CREATE EXTENSION IF NOT EXISTS "pgcrypto"`);
+  await prisma.$executeRaw(DEMO_DATA_SQL);
 
   if (!shouldSeedDemoAccountant()) {
     console.warn('[seed] Se omitió el usuario demo contador: requiere SEED_DEMO=true fuera de producción.');
@@ -579,19 +583,25 @@ async function seedDemoData(): Promise<void> {
   `);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+/** Ejecuta el flujo del seed y conserva una sola decisión sobre el modo demo. */
+async function runSeed(): Promise<void> {
   const env = process.env;
   assertSeedMode(env);
   const adminConfig = getAdminSeedConfig(env);
-  seedReferenceData()
-    .then(() => (adminConfig || !shouldSeedDemoData(env) ? seedConfiguredAdmin(adminConfig) : undefined))
-    .then(() => shouldSeedDemoData(env) ? seedDemoData() : undefined)
-    .then(async () => {
-      await prisma.$disconnect();
-    })
-    .catch(async (error) => {
+  const shouldSeedDemo = shouldSeedDemoData(env);
+
+  await seedReferenceData();
+  if (adminConfig || !shouldSeedDemo) await seedConfiguredAdmin(adminConfig);
+  if (shouldSeedDemo) await seedDemoData();
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  runSeed()
+    .catch((error: unknown) => {
       console.error(error);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
       await prisma.$disconnect();
-      process.exit(1);
     });
 }

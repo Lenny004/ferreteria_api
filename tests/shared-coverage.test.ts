@@ -45,6 +45,7 @@ describe("shared: respuestas, cookies, errores y entorno", () => {
     expect(isValidCsrfToken(token, token, userId)).toBe(true);
     expect(isValidCsrfToken(token, undefined, userId)).toBe(false);
     expect(isValidCsrfToken(token, `${token}x`, userId)).toBe(false);
+    expect(isValidCsrfToken(token, `${token}.extra`, userId)).toBe(false);
     expect(isValidCsrfToken(token, "bad", userId)).toBe(false);
     expect(isValidCsrfToken(token, token, "650e8400-e29b-41d4-a716-446655440000")).toBe(false);
   });
