@@ -55,10 +55,7 @@ export function buildPasswordResetEmail(params: {
     params.audience === "SHOP_CUSTOMER"
       ? (process.env.SHOP_APP_URL ?? "http://localhost:3000/tienda")
       : (process.env.ADMIN_APP_URL ?? "http://localhost:3000");
-  const path =
-    params.audience === "SHOP_CUSTOMER"
-      ? `/restablecer-contrasena?token=${params.resetToken}`
-      : `/restablecer-contrasena?token=${params.resetToken}`;
+  const path = `/restablecer-contrasena?token=${params.resetToken}`;
   const link = `${base.replace(/\/$/, "")}${path}`;
   return {
     subject: "Restablecer contraseña — Ferreteria",

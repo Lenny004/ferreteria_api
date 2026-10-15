@@ -16,6 +16,11 @@ type RetryOptions = {
 /** Códigos de concurrencia transitoria que permiten repetir una transacción. */
 type RetryableTransactionCode = "P2034" | "40001" | "40P01";
 
+const DEFAULT_MAX_ATTEMPTS = 3;
+const DEFAULT_BASE_DELAY_MS = 25;
+const DEFAULT_MAX_WAIT_MS = 5_000;
+const DEFAULT_TIMEOUT_MS = 15_000;
+
 /**
  * Determina si un error representa un conflicto transitorio de concurrencia.
  * Solo se aceptan P2034, P2010 con SQLSTATE 40001/40P01 en metadatos o mensaje;
@@ -65,14 +70,14 @@ export async function runWithTransactionRetry<T>(
   callback: (tx: Prisma.TransactionClient) => Promise<T>,
   options: RetryOptions = {},
 ): Promise<T> {
-  const maxAttempts = Math.max(1, Math.min(options.maxAttempts ?? 3, 3));
-  const baseDelayMs = Math.max(0, options.baseDelayMs ?? 25);
+  const maxAttempts = Math.max(1, Math.min(options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS, DEFAULT_MAX_ATTEMPTS));
+  const baseDelayMs = Math.max(0, options.baseDelayMs ?? DEFAULT_BASE_DELAY_MS);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       return await prisma.$transaction(callback, {
-        maxWait: options.maxWait ?? 5_000,
-        timeout: options.timeout ?? 15_000,
+        maxWait: options.maxWait ?? DEFAULT_MAX_WAIT_MS,
+        timeout: options.timeout ?? DEFAULT_TIMEOUT_MS,
       });
     } catch (error) {
       if (!isRetryableTransactionError(error) || attempt === maxAttempts) throw error;
