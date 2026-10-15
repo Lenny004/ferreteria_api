@@ -151,9 +151,22 @@ export async function updateVacationBalance(
 /**
  * Incrementa `daysTaken` del saldo del año dado para un empleado (usado al aprobar
  * una solicitud de vacaciones). Crea el saldo si aún no existe para ese año.
+ * Puede recibir el cliente de una transacción para mantener atómicos el cambio de
+ * estado de la solicitud y el ajuste del saldo.
+ *
+ * @param employeeId - Identificador del empleado.
+ * @param year - Año al que pertenece el saldo.
+ * @param days - Días que se agregan al saldo utilizado.
+ * @param tx - Cliente transaccional opcional de Prisma.
  */
-export async function incrementDaysTaken(employeeId: string, year: number, days: number): Promise<void> {
-  await prisma.vacationBalance.upsert({
+export async function incrementDaysTaken(
+  employeeId: string,
+  year: number,
+  days: number,
+  tx?: Prisma.TransactionClient,
+): Promise<void> {
+  const client = tx ?? prisma;
+  await client.vacationBalance.upsert({
     where: { employeeId_year: { employeeId, year } },
     create: { employeeId, year, daysEarned: DEFAULT_VACATION_DAYS, daysTaken: days },
     update: { daysTaken: { increment: days }, updatedAt: new Date() },
