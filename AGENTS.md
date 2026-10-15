@@ -26,6 +26,8 @@ Estándar con 100 criterios organizados en 7 familias:
 
 **Ubicación:** [`.cursor/skills/documentacion-codigo/SKILL.md`](.cursor/skills/documentacion-codigo/SKILL.md)
 
+- **Revisión de código:** [`.cursor/skills/revision-codigo/SKILL.md`](.cursor/skills/revision-codigo/SKILL.md) — guía para revisar legibilidad y mantenibilidad (úsala en revisiones y refactors).
+
 Reglas de documentación JSDoc/TSDoc para TypeScript/JavaScript:
 
 - **JSDoc/TSDoc** para funciones, clases, interfaces, tipos.
