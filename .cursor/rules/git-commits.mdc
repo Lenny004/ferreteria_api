@@ -1,0 +1,10 @@
+---
+description: Commits lógicos y merge de PRs por squash
+alwaysApply: true
+---
+
+# Commits lógicos y merge de PRs
+
+- Agrupar cambios en commits lógicos; no hacer commit/push por cada paso pequeño.
+- Los PRs se fusionan con "Squash and merge".
+- No agregar trailers Co-authored-by de Cursor ni de ninguna IA en los commits.
