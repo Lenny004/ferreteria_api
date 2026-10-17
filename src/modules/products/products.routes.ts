@@ -11,6 +11,8 @@ import * as controller from "./products.controller.js";
 const router = Router();
 router.use(authenticate);
 router.get("/", requireRole("ADMIN", "ACCOUNTANT", "OWNER"), controller.list);
+// Debe declararse antes de `/:id` para que "options" no se interprete como identificador.
+router.get("/options", requireRole("ADMIN", "ACCOUNTANT", "OWNER"), controller.options);
 router.get("/:id", requireRole("ADMIN", "ACCOUNTANT", "OWNER"), controller.getById);
 router.post("/", requireRole("ADMIN", "OWNER"), controller.create);
 router.patch("/:id", requireRole("ADMIN", "OWNER"), controller.update);
