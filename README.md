@@ -282,7 +282,7 @@ Los siguientes 30 montajes se comprueban en `src/app.ts`; los subpaths se define
 | `catalogs` | `/api/v1/departments` | Catálogo de departamentos |
 | `catalogs` | `/api/v1/positions` | Catálogo de cargos |
 | `customers` | `/api/v1/customers` | Clientes |
-| `products` | `/api/v1/products` | Productos |
+| `products` | `/api/v1/products` | Catálogo de productos, opciones de formulario, alta y edición |
 | `inventory` | `/api/v1/inventory` y `/api/v1/inventory/counts` | Movimientos, Kardex, alertas, valoración, importación y conteos |
 | `purchasing` | `/api/v1/suppliers` | Proveedores |
 | `purchasing` | `/api/v1/purchase-orders` | Órdenes de compra, confirmación, recepción y cancelación |
@@ -559,6 +559,18 @@ El manejador global traduce errores conocidos sin exponer SQL, stack ni detalles
 - `P2003` en `DELETE` → `409 FOREIGN_KEY_CONFLICT`; en otras operaciones → `400 INVALID_REFERENCE`.
 
 El POS WPF no llama a la API: usa EF Core directo. Bearer se conserva para clientes no navegador, `tools/Ferreteria.Smoke` y scripts futuros.
+
+## Productos
+
+| Endpoint | Roles | Uso |
+|---|---|---|
+| `GET /api/v1/products` | ADMIN, ACCOUNTANT, OWNER | Listar (`q`, `familyId`, `inStock`, `includeInactive=true`, `take` ≤ 200, `skip`) |
+| `GET /api/v1/products/options` | ADMIN, ACCOUNTANT, OWNER | Familias activas con subfamilias y unidades de medida para el formulario |
+| `GET /api/v1/products/:id` | ADMIN, ACCOUNTANT, OWNER | Detalle |
+| `POST /api/v1/products` | ADMIN, OWNER | Alta; la subfamilia debe pertenecer a la familia |
+| `PATCH /api/v1/products/:id` | ADMIN, OWNER | Edición parcial y activación/desactivación |
+
+`PATCH` ignora `currentStock`: el stock solo cambia con movimientos de inventario, así el kardex (`GET /api/v1/inventory/kardex/:productId`) explica cada saldo.
 
 ## Conteos físicos de inventario
 

@@ -194,7 +194,7 @@ export const validationParityMap: ValidationParityEntry[] = [
   ...fields(productUpdateSchema, "Product", "actualizacion", {
     code: "code", description: "description", familyId: "familyId", measurementTypeId: "measurementTypeId",
     subfamilyId: "subfamilyId", barcode: "barcode", salePrice: "salePrice", costPrice: "costPrice",
-    currentStock: "currentStock", minStock: "minStock", maxStock: "maxStock", reorderPoint: "reorderPoint", notes: "notes",
+    minStock: "minStock", maxStock: "maxStock", reorderPoint: "reorderPoint", notes: "notes",
   }),
 
   ...fields(purchaseListSchema, "PurchaseOrder", "consulta", { status: "status", q: "notes" }),

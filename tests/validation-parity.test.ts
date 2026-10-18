@@ -82,7 +82,7 @@ const validationParityExclusions: ValidationParityExclusion[] = [
   ...exclude("src/modules/leave-requests/leave-requests.controller.ts#ListSchema", ["employeeId", "leaveTypeId", "startDateFrom", "startDateTo", "take", "skip"], "Identificador UUID, fecha de consulta o paginación; no es VarChar/Decimal."),
   ...exclude("src/modules/payroll-periods/payroll-periods.controller.ts#ListQuerySchema", ["year"], "Filtro de año sobre columna Int, no es VarChar/Decimal."),
   ...exclude("src/modules/payroll-runs/payroll-runs.controller.ts#ListRunsSchema", ["periodId", "createdBy", "take", "skip"], "Identificador UUID o paginación, no es VarChar/Decimal."),
-  ...exclude("src/modules/products/products.controller.ts#listQuerySchema", ["familyId", "subfamilyId", "inStock", "take", "skip"], "Identificador UUID, filtro calculado o paginación, no es VarChar/Decimal."),
+  ...exclude("src/modules/products/products.controller.ts#listQuerySchema", ["familyId", "subfamilyId", "inStock", "includeInactive", "take", "skip"], "Identificador UUID, filtro calculado o paginación, no es VarChar/Decimal."),
   ...exclude("src/modules/public-catalog/public-catalog.controller.ts#listQuerySchema", ["familyId", "subfamilyId", "inStock", "take", "skip", "sort"], "Identificador UUID, filtro calculado, ordenamiento o paginación, no es VarChar/Decimal."),
   ...exclude("src/modules/purchasing/purchase-orders.controller.ts#createSchema", ["lines[].productId"], "Identificador UUID anidado, no es VarChar/Decimal."),
   ...exclude("src/modules/purchasing/purchase-orders.controller.ts#lineSchema", ["productId"], "Identificador UUID, no es VarChar/Decimal."),

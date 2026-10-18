@@ -17,6 +17,11 @@ export const listQuerySchema = z.object({
     .enum(["true", "false", "1", "0"])
     .optional()
     .transform((v) => (v === undefined ? undefined : v === "true" || v === "1")),
+  /** Incluye productos desactivados; lo usa el catálogo del panel para poder reactivarlos. */
+  includeInactive: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
   take: z.coerce.number().int().positive().max(200).optional(),
   skip: z.coerce.number().int().nonnegative().optional(),
 });
@@ -35,16 +40,29 @@ export const createSchema = z.object({
   notes: z.string().nullable().optional(),
 });
 
-export const updateSchema = createSchema.partial().extend({
+/**
+ * Edición parcial. `currentStock` queda fuera a propósito: el stock solo cambia mediante
+ * movimientos de inventario para que el kardex siga siendo la fuente de verdad.
+ */
+export const updateSchema = createSchema.omit({ currentStock: true }).partial().extend({
   maxStock: decimalNumber(12, 3, true).nullable().optional(),
   reorderPoint: decimalNumber(12, 3, true).nullable().optional(),
   isActive: z.boolean().optional(),
 });
 
-/** GET `/` — Lista productos activos paginados con filtros de búsqueda, familia y stock. */
+/** GET `/` — Lista productos paginados (activos por defecto) con filtros de búsqueda, familia y stock. */
 export async function list(req: Request, res: Response, next: NextFunction) {
   try {
     jsonSuccess(res, await productsService.list(listQuerySchema.parse(req.query)));
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** GET `/options` — Familias (con subfamilias) y unidades de medida para el formulario de producto. */
+export async function options(_req: Request, res: Response, next: NextFunction) {
+  try {
+    jsonSuccess(res, await productsService.listFormOptions());
   } catch (err) {
     next(err);
   }
